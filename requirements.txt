@@ -1,0 +1,11 @@
+# Runtime packages for the CreditParity app and notebooks
+# (versions tested locally with Python 3.13)
+fairlearn==0.15.0
+joblib==1.6.0
+matplotlib==3.11.2
+numpy==2.5.4
+pandas==3.1.0
+scikit-learn==1.9.1
+seaborn==0.13.2
+shap==0.54.1
+streamlit==1.66.1

@@ -1,0 +1,16 @@
+# AI Usage
+
+This project was built with help from **Claude Code** (Anthropic, model Claude Opus 5.5), an AI coding assistant. This file documents what the assistant was used for and how we verified its output. The team designed the project idea, business case, cost assumption and three-zone policy, and reviewed every step before it was accepted.
+
+## How we worked
+
+- The assistant worked step by step. After each step it summarized the results, and the team reviewed and approved them before the next step started.
+- All code was executed and every number reported in the notebooks and README comes from an actual run. No result was typed in by hand without being produced by code.
+- The Steps 1–3 notebook already existed when the assistant was brought in.
+
+## Log
+
+| Step | What the assistant did | How it was verified |
+|---|---|---|
+| Repo setup | Created the folder structure, `.gitignore`, `requirements.txt`, a local Python environment and this file. Re-ran the existing Steps 1–3 notebook in a scratch copy. | The re-run reproduced all reported Steps 1–3 numbers (e.g. accuracy 0.800, recall 0.626, ROC AUC 0.867; CV ROC AUC 0.859 vs. 0.848). |
+| Step 4 – Model comparison | Wrote and ran `notebooks/credit_risk_step_4_model_comparison.ipynb`: logistic regression, random forest and XGBoost with 5-fold stratified CV on the training set, default and tuned (nested CV); drafted the interpretation. | Notebook executed end to end; the numbers in the text were checked against the printed tables. Per-fold comparison confirms that logistic regression is best in 5 of 5 folds. Team review of the model decision: pending. |
