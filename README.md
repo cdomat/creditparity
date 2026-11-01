@@ -33,6 +33,18 @@ The zones are justified by **human oversight**, not by extra cost savings: the E
 
 **Core message:** a simple, explainable model performs as well as a complex one. The real gain comes from catching more defaults with a cost-based threshold, combined with human judgment for uncertain cases. With the fair model, the cost on the test set is still about **30% lower** than with the default threshold of 0.5 (488 vs. 700), while the age gap for creditworthy applicants drops from 0.80 to 0.26 and the sex gap from 0.15 to 0.04.
 
+### The price of fairness
+
+Compared with model (a), the fair model (c):
+- costs **19% more** (488 vs. 409 on the test set), but is still **30% cheaper** than the default threshold of 0.5 (700);
+- sends more applications to manual review (**53% vs. 42%**);
+- auto-approves more defaults (**25 vs. 14**).
+
+In return:
+- **no creditworthy applicant aged 51+ is declined automatically** on the test set (0 of 21, vs. 8 of 21 with model (a); on the training data 5 of 83 vs. 41 of 83);
+- the zone shares of women and men are almost identical (out-of-fold: green 36% vs. 32%, yellow 51% vs. 52%, red 13% vs. 16%);
+- the age gap for creditworthy applicants (EOD) falls from 0.80 to 0.26 and the sex gap from 0.15 to 0.04.
+
 ## Data
 
 - `data/german_credit_data_biased_training.csv`: IBM version of the German Credit dataset, **synthetic**, 5,000 applications, 20 features, no missing values
@@ -56,6 +68,7 @@ An initial analysis with IBM watsonx AutoAI selected an XGBoost pipeline by accu
 - The **5:1 cost ratio** is an assumption, not an estimate from real loss data.
 - The 80% precision target for automatic declines is a business assumption. Before deployment it should be validated with the bank's risk and compliance teams. In operation, the thresholds should be monitored regularly and adjusted to the available analyst capacity: a higher target reduces wrongful automatic declines but increases the manual review workload.
 - With this target, about half of all applications (53% on the test set) go to manual review, a substantial workload.
+- The fair model auto-approves more defaults than model (a) (25 vs. 14 on the test set), because its lower boundary is higher (0.16 vs. 0.11) and it separates defaults from good customers less sharply.
 - Cost figures assume that every application with a default probability ≥ 0.16 is declined. Analyst decisions in the yellow zone and human reviews requested in the red zone may change some decisions; the dataset cannot show how this affects cost.
 - Small groups: only 123 applicants have `ForeignWorker = no` (23 in the test set), so fairness metrics for this group are uncertain.
 - Reweighing uses protected attributes (age, sex, foreign worker status) during training, which needs a legal review.
