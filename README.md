@@ -21,13 +21,17 @@ Instead of a simple approve/reject decision, CreditParity uses a **human-in-the-
 
 | Zone | Meaning |
 |---|---|
-| 🟢 Green – auto-approve (PD < 0.11) | Low default probability, approved automatically |
-| 🟡 Yellow – manual review (0.11 ≤ PD < 0.37) | Uncertain cases: a credit analyst decides, supported by a SHAP explanation. This is the only manual workload. |
-| 🔴 Red – decline recommended (PD ≥ 0.37) | The system declines and gives the customer a SHAP-based explanation; the customer can request a human review |
+| 🟢 Green – auto-approve (PD < 0.16) | Low default probability, approved automatically |
+| 🟡 Yellow – manual review (0.16 ≤ PD < 0.65) | Uncertain cases: a credit analyst decides, supported by a SHAP explanation. This is the only manual workload. |
+| 🔴 Red – decline recommended (PD ≥ 0.65) | The system declines and gives the customer a SHAP-based explanation; the customer can request a human review |
 
 The zones are justified by **human oversight**, not by extra cost savings: the EU AI Act classifies credit scoring as a high-risk AI system that requires effective human oversight, and GDPR Art. 22 gives applicants the right to human intervention and to contest automated decisions. At the same time, the zones keep the analyst workload manageable by handling clear cases automatically.
 
-**Core message:** a simple, explainable model performs as well as a complex one. The real gain comes from catching more defaults with a cost-based threshold, combined with human judgment for uncertain cases.
+**Boundaries.** The lower boundary is the cost-optimal threshold (5:1 cost matrix). The upper boundary is the lowest threshold at which at least 80% of automatic declines are actual defaults (precision rule). Both are chosen on cross-validated predictions of the training data.
+
+**Final model.** A logistic regression trained with **reweighing** on age group, sex and foreign worker status, so that it does not learn the group differences in default rates. The same model without reweighing is kept as a comparison to show the price of fairness.
+
+**Core message:** a simple, explainable model performs as well as a complex one. The real gain comes from catching more defaults with a cost-based threshold, combined with human judgment for uncertain cases. With the fair model, the cost on the test set is still about **30% lower** than with the default threshold of 0.5 (488 vs. 700), while the age gap for creditworthy applicants drops from 0.80 to 0.26 and the sex gap from 0.15 to 0.04.
 
 ## Data
 
@@ -41,8 +45,8 @@ The zones are justified by **human oversight**, not by extra cost savings: the E
 |---|---|---|
 | 1–3 Business case, EDA, baseline | `notebooks/credit_risk_steps_1-3.ipynb` | Logistic regression on the test set: accuracy 0.80, recall 0.63, ROC AUC 0.87. Strong age effect in the data (default rate 7% for ages 19–25 vs. 78% for 51+). |
 | 4 Model comparison | `notebooks/credit_risk_step_4_model_comparison.ipynb` | 5-fold CV on the training set: logistic regression ROC AUC **0.857**, tuned XGBoost 0.850, tuned random forest 0.848. Logistic regression is best in all 5 folds, so we keep the simple, explainable model. |
-| 5 Thresholds and zones | `notebooks/credit_risk_step_5_thresholds_and_zones.ipynb` | **Headline:** the cost-based threshold of **0.11** (chosen on out-of-fold predictions of the training set) lowers the test-set cost by **42% (700 → 409)** and raises recall from **0.63 to 0.96**. Zones on the test set: 34% auto-approved, 27% manual review (analyst workload), 39% decline recommended. |
-| 6 Fairness | `notebooks/credit_risk_step_6_fairness.ipynb` | Large age gap: 95–96% of creditworthy applicants aged 51+ are declined vs. 14–17% of those aged 19–25 (Equal Opportunity Difference 0.80 out-of-fold). **Dropping sensitive features does not help** (EOD 0.82), because age can be reconstructed from other features (ROC AUC 0.90). **Reweighing** cuts the age gap by about two thirds (EOD 0.26) and almost removes the sex gap, at 17–19% higher cost. |
+| 5 Thresholds and zones | `notebooks/credit_risk_step_5_thresholds_and_zones.ipynb` | Final model (c), thresholds chosen on out-of-fold predictions of the training set. Lower boundary = cost-optimal threshold **0.16**; upper boundary **0.65** (≥ 80% of automatic declines are defaults). Test set: cost **700 → 488 (−30%)** vs. the default threshold 0.5, recall 0.63 → 0.93; 33% auto-approved, 53% manual review, 14% decline recommended (red-zone precision 82.5%, 25 good customers declined automatically). Comparison model (a): cost 409. |
+| 6 Fairness | `notebooks/credit_risk_step_6_fairness.ipynb` | Model (a) declines 95–96% of creditworthy applicants aged 51+ vs. 14–17% of those aged 19–25 (Equal Opportunity Difference 0.80 out-of-fold). **Dropping sensitive features does not help** (EOD 0.82), because age can be reconstructed from other features (ROC AUC 0.90). **Reweighing** (final model) cuts the age gap to 0.26 and the sex gap from 0.15 to 0.04, at 17–19% higher cost than model (a). Good customers aged 51+ declined automatically: 41 of 83 with (a), 5 of 83 with (c). |
 
 An initial analysis with IBM watsonx AutoAI selected an XGBoost pipeline by accuracy (79.6% on a 499-case holdout, but recall of only 53%). Our fair comparison on identical folds shows that this extra complexity does not pay off on this dataset.
 
@@ -50,10 +54,12 @@ An initial analysis with IBM watsonx AutoAI selected an XGBoost pipeline by accu
 
 - The dataset is **synthetic**. Some relationships are implausible, e.g. a negative checking account balance (`CheckingStatus = less_0`) has the lowest default rate. Results may not transfer to real loan data.
 - The **5:1 cost ratio** is an assumption, not an estimate from real loss data.
-- Cost figures assume that every application with a default probability ≥ 0.11 is declined. Analyst decisions in the yellow zone and human reviews requested in the red zone may change some decisions; the dataset cannot show how this affects cost.
-- The upper zone boundary (0.37) is a workload choice, not an optimum.
+- The 80% precision target for automatic declines is a business assumption. Before deployment it should be validated with the bank's risk and compliance teams. In operation, the thresholds should be monitored regularly and adjusted to the available analyst capacity: a higher target reduces wrongful automatic declines but increases the manual review workload.
+- With this target, about half of all applications (53% on the test set) go to manual review, a substantial workload.
+- Cost figures assume that every application with a default probability ≥ 0.16 is declined. Analyst decisions in the yellow zone and human reviews requested in the red zone may change some decisions; the dataset cannot show how this affects cost.
 - Small groups: only 123 applicants have `ForeignWorker = no` (23 in the test set), so fairness metrics for this group are uncertain.
-- The bias mitigation (reweighing) uses age, sex and foreign worker status as model inputs in order to correct for them. Using protected attributes directly can be legally sensitive and would need a legal review. It also narrows the age gap partly by declining more young applicants.
+- Reweighing uses protected attributes (age, sex, foreign worker status) during training, which needs a legal review.
+- Reweighing increases declines of young good customers: 41% of good customers aged 19–25 have a default probability above the lower boundary (out-of-fold; 45% on the test set), compared with 17% without reweighing. Most of them go to manual review; 3% are declined automatically.
 
 ## Repository structure
 
