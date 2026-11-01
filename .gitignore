@@ -10,3 +10,6 @@ venv/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# R
+.Rhistory
