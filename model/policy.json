@@ -1,0 +1,33 @@
+{
+  "cost_fn": 5,
+  "cost_fp": 1,
+  "target_precision": 0.8,
+  "models": {
+    "d": {
+      "lower_boundary": 0.15,
+      "upper_boundary": 0.71,
+      "upper_boundary_by_target": {
+        "0.70": 0.53,
+        "0.75": 0.62,
+        "0.80": 0.71,
+        "0.85": 0.77,
+        "0.90": 0.82,
+        "0.95": 0.89
+      }
+    },
+    "a": {
+      "lower_boundary": 0.11,
+      "upper_boundary": 0.58,
+      "upper_boundary_by_target": {
+        "0.70": 0.47,
+        "0.75": 0.52,
+        "0.80": 0.58,
+        "0.85": 0.66,
+        "0.90": 0.73,
+        "0.95": 0.86
+      }
+    }
+  },
+  "final_model": "(d) Fair model: reweighing; Age as input, Sex and ForeignWorker not used",
+  "comparison_model": "(a) All features, no reweighing"
+}

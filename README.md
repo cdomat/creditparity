@@ -65,6 +65,7 @@ We also tested model (c), which uses sex as an input. It almost removes the sex 
 | 5 Thresholds and zones | `notebooks/credit_risk_step_5_thresholds_and_zones.ipynb` | Final model (d), thresholds chosen on out-of-fold predictions of the training set. Lower boundary = cost-optimal threshold **0.15**; upper boundary **0.71** (≥ 80% of automatic declines are defaults). Test set: cost **700 → 467 (−33%)** vs. the default threshold 0.5, recall 0.63 → 0.95; 30% auto-approved, 60% manual review, 10% decline recommended (red-zone precision 86%, 14 good customers declined automatically). Comparison model (a): cost 409. |
 | 6 Fairness | `notebooks/credit_risk_step_6_fairness.ipynb` | Model (a) declines 95–96% of creditworthy applicants aged 51+ vs. 14–17% of those aged 19–25 (Equal Opportunity Difference 0.80 out-of-fold). **Dropping sensitive features does not help** (EOD 0.82), because age can be reconstructed from other features (ROC AUC 0.90). **Reweighing with age as an input** (final model (d)) cuts the age gap to 0.29. Good customers aged 51+ declined automatically: 41 of 83 with (a), 1 of 83 with (d). For sex, equal treatment and equal outcomes conflict on this data (models (c) and (e) as evidence); CreditParity chooses equal treatment. |
 | 7 Explainability | `notebooks/credit_risk_step_7_explainability.ipynb` | Exact SHAP values for the logistic regression, aggregated to the input features. In the fair model, **age is the strongest driver, with a negative coefficient**: it acts as a counterweight to the age proxies (e.g. long employment), so it is shown to analysts as "Age (fairness correction)". Sex and foreign worker status never appear. Some explanations are implausible because the data is synthetic (e.g. a negative checking balance lowers the risk). |
+| 8 Saved model | `notebooks/credit_risk_step_8_save_model.ipynb` | `model/creditparity_bundle.joblib` holds the final model (d) and the comparison model (a) as complete sklearn pipelines, the decision policy (0.15 / 0.71, 80% precision target, 5:1 costs) and the data for exact SHAP explanations; `model/policy.json` and `model/evaluation_data.csv` support the dashboard. Reloading the files in a separate process reproduces all 26 checked test-set values. |
 
 An initial analysis with IBM watsonx AutoAI selected an XGBoost pipeline by accuracy (79.6% on a 499-case holdout, but recall of only 53%). Our fair comparison on identical folds shows that this extra complexity does not pay off on this dataset.
 
@@ -89,7 +90,7 @@ An initial analysis with IBM watsonx AutoAI selected an XGBoost pipeline by accu
 ```
 data/        dataset
 notebooks/   one notebook per project phase (Google Colab compatible)
-model/       saved final pipeline and zone thresholds (Step 8)
+model/       final and comparison pipelines, decision policy, evaluation data (Step 8)
 app.py       Streamlit dashboard (Step 9)
 AI_USAGE.md  documentation of AI assistance
 ```
