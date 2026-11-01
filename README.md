@@ -42,6 +42,7 @@ The zones are justified by **human oversight**, not by extra cost savings: the E
 | 1–3 Business case, EDA, baseline | `notebooks/credit_risk_steps_1-3.ipynb` | Logistic regression on the test set: accuracy 0.80, recall 0.63, ROC AUC 0.87. Strong age effect in the data (default rate 7% for ages 19–25 vs. 78% for 51+). |
 | 4 Model comparison | `notebooks/credit_risk_step_4_model_comparison.ipynb` | 5-fold CV on the training set: logistic regression ROC AUC **0.857**, tuned XGBoost 0.850, tuned random forest 0.848. Logistic regression is best in all 5 folds, so we keep the simple, explainable model. |
 | 5 Thresholds and zones | `notebooks/credit_risk_step_5_thresholds_and_zones.ipynb` | **Headline:** the cost-based threshold of **0.11** (chosen on out-of-fold predictions of the training set) lowers the test-set cost by **42% (700 → 409)** and raises recall from **0.63 to 0.96**. Zones on the test set: 34% auto-approved, 27% manual review (analyst workload), 39% decline recommended. |
+| 6 Fairness | `notebooks/credit_risk_step_6_fairness.ipynb` | Large age gap: 95–96% of creditworthy applicants aged 51+ are declined vs. 14–17% of those aged 19–25 (Equal Opportunity Difference 0.80 out-of-fold). **Dropping sensitive features does not help** (EOD 0.82), because age can be reconstructed from other features (ROC AUC 0.90). **Reweighing** cuts the age gap by about two thirds (EOD 0.26) and almost removes the sex gap, at 17–19% higher cost. |
 
 An initial analysis with IBM watsonx AutoAI selected an XGBoost pipeline by accuracy (79.6% on a 499-case holdout, but recall of only 53%). Our fair comparison on identical folds shows that this extra complexity does not pay off on this dataset.
 
@@ -51,7 +52,8 @@ An initial analysis with IBM watsonx AutoAI selected an XGBoost pipeline by accu
 - The **5:1 cost ratio** is an assumption, not an estimate from real loss data.
 - Cost figures assume that every application with a default probability ≥ 0.11 is declined. Analyst decisions in the yellow zone and human reviews requested in the red zone may change some decisions; the dataset cannot show how this affects cost.
 - The upper zone boundary (0.37) is a workload choice, not an optimum.
-- Small groups: only 123 applicants have `ForeignWorker = no`, so fairness metrics for this group are uncertain.
+- Small groups: only 123 applicants have `ForeignWorker = no` (23 in the test set), so fairness metrics for this group are uncertain.
+- The bias mitigation (reweighing) uses age, sex and foreign worker status as model inputs in order to correct for them. Using protected attributes directly can be legally sensitive and would need a legal review. It also narrows the age gap partly by declining more young applicants.
 
 ## Repository structure
 
