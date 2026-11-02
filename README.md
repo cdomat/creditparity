@@ -2,7 +2,9 @@
 
 CreditParity is a credit risk scoring prototype for a bank's retail customers that aims to be both **profitable** and **demonstrably fair**. The name refers to *Demographic Parity*, one of the fairness metrics we measure.
 
-A user enters a single loan application (or uploads several as a CSV) and receives a default probability, a rating class, a decision zone and an explanation of the main drivers.
+A credit analyst enters a single loan application (or uploads several as a CSV) and receives a default probability, a rating class, a decision zone and an explanation of the main drivers.
+
+![Single application](docs/screenshots/1_single_application.png)
 
 > **Live app:** _link will be added after deployment on Streamlit Community Cloud (Step 10)._
 
@@ -28,6 +30,8 @@ Instead of a simple approve/reject decision, CreditParity uses a **human-in-the-
 The zones are justified by **human oversight**, not by extra cost savings: the EU AI Act classifies credit scoring as a high-risk AI system that requires effective human oversight, and GDPR Art. 22 gives applicants the right to human intervention and to contest automated decisions. At the same time, the zones keep the analyst workload manageable by handling clear cases automatically.
 
 **Boundaries.** The lower boundary is the cost-optimal threshold (5:1 cost matrix). The upper boundary is the lowest threshold at which at least 80% of automatic declines are actual defaults (precision rule). Both are chosen on cross-validated predictions of the training data.
+
+**Rating and zone.** Each application also gets a rating on a fixed master scale (A < 5%, B 5–15%, C 15–35%, D 35–70%, E ≥ 70% default probability). The rating describes the applicant's risk and depends only on the default probability, while the zone describes how the bank handles the application and follows the policy, so changing the policy can change the zone but never the rating.
 
 **Final model (d).** A logistic regression trained with **reweighing** on age group, sex and foreign worker status, so that it does not learn the group differences in default rates. **Sex and foreign worker status are not model inputs**: no applicant's score depends directly on sex. `Age` stays as an input, as a correction for the many features that indirectly reveal age. The model with all features and no reweighing, (a), is kept as a comparison to show the price of fairness.
 
@@ -66,6 +70,7 @@ We also tested model (c), which uses sex as an input. It almost removes the sex 
 | 6 Fairness | `notebooks/credit_risk_step_6_fairness.ipynb` | Model (a) declines 95–96% of creditworthy applicants aged 51+ vs. 14–17% of those aged 19–25 (Equal Opportunity Difference 0.80 out-of-fold). **Dropping sensitive features does not help** (EOD 0.82), because age can be reconstructed from other features (ROC AUC 0.90). **Reweighing with age as an input** (final model (d)) cuts the age gap to 0.29. Good customers aged 51+ declined automatically: 41 of 83 with (a), 1 of 83 with (d). For sex, equal treatment and equal outcomes conflict on this data (models (c) and (e) as evidence); CreditParity chooses equal treatment. |
 | 7 Explainability | `notebooks/credit_risk_step_7_explainability.ipynb` | Exact SHAP values for the logistic regression, aggregated to the input features. In the fair model, **age is the strongest driver, with a negative coefficient**: it acts as a counterweight to the age proxies (e.g. long employment), so it is shown to analysts as "Age (fairness correction)". Sex and foreign worker status never appear. Some explanations are implausible because the data is synthetic (e.g. a negative checking balance lowers the risk). |
 | 8 Saved model | `notebooks/credit_risk_step_8_save_model.ipynb` | `model/creditparity_bundle.joblib` holds the final model (d) and the comparison model (a) as complete sklearn pipelines, the decision policy (0.15 / 0.71, 80% precision target, 5:1 costs) and the data for exact SHAP explanations; `model/policy.json` and `model/evaluation_data.csv` support the dashboard. Reloading the files in a separate process reproduces all 26 checked test-set values. |
+| 9 Dashboard | `app.py` | Streamlit dashboard with four sections (single application, batch upload, bank view, model info). Loads the saved files from Step 8; its bank view reproduces the Step 5/6 test results (e.g. cost 467, 60% manual review, 0 of 21 good customers aged 51+ declined automatically). |
 
 An initial analysis with IBM watsonx AutoAI selected an XGBoost pipeline by accuracy (79.6% on a 499-case holdout, but recall of only 53%). Our fair comparison on identical folds shows that this extra complexity does not pay off on this dataset.
 
@@ -92,7 +97,26 @@ data/        dataset
 notebooks/   one notebook per project phase (Google Colab compatible)
 model/       final and comparison pipelines, decision policy, evaluation data (Step 8)
 app.py       Streamlit dashboard (Step 9)
+docs/        screenshots of the dashboard
 AI_USAGE.md  documentation of AI assistance
+```
+
+## The dashboard
+
+`app.py` is a Streamlit dashboard for credit analysts with four sections:
+
+1. **Single application** – form for all application fields (with examples from the test set), default probability, rating and zone, the top drivers of the decision (exact SHAP values; age is shown as "Age (fairness correction)") and a credit memo for cases in manual review.
+2. **Batch upload** – score a CSV of applications (a sample file can be downloaded in the app) and download the results.
+3. **Bank view** – sliders for the lower boundary and the target precision for automatic declines; zone shares, manual review workload, cost, recall, precision and fairness metrics (demographic parity and equal opportunity difference, zone shares by group) update live on the 1,000 test applications. A toggle compares the final model with model (a).
+4. **Model info** – rating vs. zone, model comparison incl. the AutoAI benchmark, the price of fairness and the limitations.
+
+Screenshots: [single application](docs/screenshots/1_single_application.png) · [batch upload](docs/screenshots/2_batch_upload.png) · [bank view](docs/screenshots/3_bank_view.png) · [bank view with comparison](docs/screenshots/3b_bank_view_compare.png) · [model info](docs/screenshots/4_model_info.png)
+
+Run it locally:
+
+```bash
+pip install -r requirements.txt
+streamlit run app.py
 ```
 
 ## Running the notebooks locally

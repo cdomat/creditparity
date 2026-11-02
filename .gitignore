@@ -13,3 +13,6 @@ venv/
 
 # R
 .Rhistory
+
+# Local tool settings
+.claude/
