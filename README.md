@@ -1,12 +1,14 @@
 # CreditParity – Profitable, Fair Lending Decisions
 
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://creditparity.streamlit.app)
+
+> **Live app: [creditparity.streamlit.app](https://creditparity.streamlit.app)**
+
 CreditParity is a credit risk scoring prototype for a bank's retail customers that aims to be both **profitable** and **demonstrably fair**. The name refers to *Demographic Parity*, one of the fairness metrics we measure.
 
 A credit analyst enters a single loan application (or uploads several as a CSV) and receives a default probability, a rating class, a decision zone and an explanation of the main drivers.
 
 ![Single application](docs/screenshots/1_single_application.png)
-
-> **Live app:** _link will be added after deployment on Streamlit Community Cloud (see [Deployment](#deployment-on-streamlit-community-cloud))._
 
 *Final team project, BUS/FIN 241A Machine Learning, Brandeis University.*
 
@@ -137,7 +139,7 @@ The app is ready for [Streamlit Community Cloud](https://share.streamlit.io) (fr
 3. Select this repository, branch `main` and main file path `app.py`.
 4. Under **Advanced settings**, choose **Python 3.13**. The saved model was created with scikit-learn 1.9.1, which `requirements.txt` pins; other versions may fail to load it.
 5. Optionally choose a custom subdomain (e.g. `creditparity`) and click **Deploy**. The first build takes a few minutes.
-6. Copy the app URL into the "Live app" line at the top of this README.
+6. Copy the app URL into the "Live app" line at the top of this README (this project: https://creditparity.streamlit.app).
 
 Streamlit Cloud installs only `requirements.txt` (the dashboard dependencies) and applies the theme in `.streamlit/config.toml`. Every push to `main` redeploys the app automatically.
 
