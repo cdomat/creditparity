@@ -9,7 +9,6 @@ Streamlit dashboard for credit analysts. Four sections:
 All models and data are loaded from model/ (created in notebook Step 8).
 """
 from pathlib import Path
-import json
 import re
 
 import altair as alt
@@ -719,12 +718,14 @@ def section_info():
         "features. It needs legal review (direct vs. indirect discrimination) and monitoring.\n"
         "- **Age is used directly** as a fairness correction, and reweighing uses age, sex and foreign worker "
         "status to compute training weights. Both need legal review.\n"
-        "- The **age correction is strong**: all else equal, ten years younger multiplies the odds of default by "
-        "2.55, so age alone can move an application across zones. It **shifts predicted risk toward younger "
-        "applicants** (average predicted default probability 21% for ages 19–25 vs. an observed default rate of "
-        "5%; 50% vs. 76% for ages 51+).\n"
-        "- Reweighing declines more young good customers than the comparison model; most of them go to "
-        "manual review.\n"
+        "- **The age correction shifts predicted risk toward younger applicants.** Applicants aged 19–25 are "
+        "rated about **4× riskier than their actual default rate** (average predicted default probability 21% vs. "
+        "5% on the test set), while applicants aged 51+ are rated **less risky** (50% vs. 76%). All else equal, ten "
+        "years younger multiplies the odds of default by 2.55, so age alone can move an application across zones.\n"
+        "- **Affected young applicants are mostly routed to manual review**: 42% of good customers aged 19–25 are "
+        "not auto-approved (17% without reweighing), but only **2.5% are declined automatically**.\n"
+        "- **Possible next step: partial reweighing**, i.e. a weaker correction strength, to balance the remaining "
+        "age gap against this shift toward younger applicants.\n"
         "- Explanations are **analyst-facing only**. A customer-facing explanation (GDPR Art. 22, right to "
         "meaningful information) is a next step that requires legal review.\n"
         "- Cost figures assume that every application with a default probability above the lower boundary is "

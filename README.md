@@ -6,7 +6,7 @@ A credit analyst enters a single loan application (or uploads several as a CSV) 
 
 ![Single application](docs/screenshots/1_single_application.png)
 
-> **Live app:** _link will be added after deployment on Streamlit Community Cloud (Step 10)._
+> **Live app:** _link will be added after deployment on Streamlit Community Cloud (see [Deployment](#deployment-on-streamlit-community-cloud))._
 
 *Final team project, BUS/FIN 241A Machine Learning, Brandeis University.*
 
@@ -84,9 +84,10 @@ An initial analysis with IBM watsonx AutoAI selected an XGBoost pipeline by accu
 - Cost figures assume that every application with a default probability ≥ 0.15 is declined. Analyst decisions in the yellow zone and human reviews requested in the red zone may change some decisions; the dataset cannot show how this affects cost.
 - The model does not use sex or foreign worker status as inputs. The remaining sex gap of about 0.2 among good customers works against men and results from differences in other features. It should be reviewed legally (direct vs. indirect discrimination) and monitored in operation.
 - Age is still used directly as a correction for its proxies. This also needs legal review.
-- The age correction is strong: with all other fields unchanged, each year of age changes the log-odds by 0.094 (ten years younger multiplies the odds of default by 2.55), so age alone can move an application across zones. It shifts predicted risk toward younger applicants: the average predicted default probability is 21% for ages 19–25 (observed default rate 5%) and 50% for ages 51+ (observed 76%) on the test set.
+- **The age correction shifts predicted risk toward younger applicants.** On the test set, applicants aged 19–25 are rated about **4× riskier than their actual default rate** (average predicted default probability 21% vs. 5%), while applicants aged 51+ are rated **less risky** than their actual default rate (50% vs. 76%). The correction is strong: with all other fields unchanged, ten years younger multiplies the odds of default by 2.55, so age alone can move an application across zones.
+- **Affected young applicants are mostly routed to manual review, not declined.** 42% of good customers aged 19–25 are not auto-approved (17% without reweighing), but only **2.5% are declined automatically** (out-of-fold training predictions); the rest are decided by an analyst.
+- **Possible next step: partial reweighing.** Applying the reweighing only partly (a correction strength between no reweighing and full reweighing) could balance the remaining age gap against this shift toward younger applicants.
 - Reweighing uses age group, sex and foreign worker status to compute the training weights, which also belongs in the legal review.
-- Reweighing increases declines of young good customers: 42% of good customers aged 19–25 have a default probability above the lower boundary (out-of-fold; 49% on the test set), compared with 17% without reweighing. Most of them go to manual review; 2.5% are declined automatically.
 - Explanations are analyst-facing only. A customer-facing explanation for automatic declines (GDPR Art. 22 right to meaningful information) is a next step that requires legal review.
 - SHAP explains the model, not the causes of default.
 - Small groups: only 123 applicants have `ForeignWorker = no` (23 in the test set), so fairness metrics for this group are uncertain.
@@ -97,7 +98,9 @@ An initial analysis with IBM watsonx AutoAI selected an XGBoost pipeline by accu
 data/        dataset
 notebooks/   one notebook per project phase (Google Colab compatible)
 model/       final and comparison pipelines, decision policy, evaluation data (Step 8)
-app.py       Streamlit dashboard (Step 9)
+app.py       Streamlit dashboard
+requirements.txt            dashboard dependencies (used by Streamlit Cloud)
+requirements-notebooks.txt  additional packages for the notebooks
 docs/        screenshots of the dashboard
 AI_USAGE.md  documentation of AI assistance
 ```
@@ -113,20 +116,37 @@ AI_USAGE.md  documentation of AI assistance
 
 Screenshots: [single application](docs/screenshots/1_single_application.png) · [batch upload](docs/screenshots/2_batch_upload.png) · [bank view](docs/screenshots/3_bank_view.png) · [bank view with comparison](docs/screenshots/3b_bank_view_compare.png) · [model info](docs/screenshots/4_model_info.png)
 
-Run it locally:
+Run it locally (Python 3.13):
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 streamlit run app.py
 ```
+
+The app opens at http://localhost:8501. It only needs the files in `model/` and `data/`; it never retrains a model.
+
+## Deployment on Streamlit Community Cloud
+
+The app is ready for [Streamlit Community Cloud](https://share.streamlit.io) (free for public GitHub repositories):
+
+1. Push the repository to GitHub (the `model/` and `data/` folders must be included).
+2. Sign in at https://share.streamlit.io with your GitHub account and click **Create app** → **Deploy a public app from GitHub**.
+3. Select this repository, branch `main` and main file path `app.py`.
+4. Under **Advanced settings**, choose **Python 3.13**. The saved model was created with scikit-learn 1.9.1, which `requirements.txt` pins; other versions may fail to load it.
+5. Optionally choose a custom subdomain (e.g. `creditparity`) and click **Deploy**. The first build takes a few minutes.
+6. Copy the app URL into the "Live app" line at the top of this README.
+
+Streamlit Cloud installs only `requirements.txt` (the dashboard dependencies) and applies the theme in `.streamlit/config.toml`. Every push to `main` redeploys the app automatically.
 
 ## Running the notebooks locally
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt xgboost jupyter
+pip install -r requirements-notebooks.txt
 jupyter notebook notebooks/
 ```
 
-In Google Colab, upload the CSV and set `DATA_PATH = "german_credit_data_biased_training.csv"` in the loading cell. XGBoost is pre-installed in Colab. On macOS, XGBoost needs the OpenMP runtime (`brew install libomp`).
+`requirements-notebooks.txt` adds the analysis packages (matplotlib, seaborn, shap, fairlearn, xgboost, jupyter) to the dashboard requirements. In Google Colab, upload the CSV and set `DATA_PATH = "german_credit_data_biased_training.csv"` in the loading cell; XGBoost, shap and the other packages are available there or can be installed with `pip`. On macOS, XGBoost needs the OpenMP runtime (`brew install libomp`).
