@@ -95,14 +95,15 @@ An initial analysis with IBM watsonx AutoAI selected an XGBoost pipeline by accu
 ## Repository structure
 
 ```
-data/        dataset
-notebooks/   one notebook per project phase (Google Colab compatible)
-model/       final and comparison pipelines, decision policy, evaluation data (Step 8)
-app.py       Streamlit dashboard
+data/                       dataset
+notebooks/                  one notebook per project phase (Google Colab compatible)
+model/                      final and comparison pipelines, decision policy, evaluation data (Step 8)
+app.py                      Streamlit dashboard
+.streamlit/config.toml      dashboard theme
 requirements.txt            dashboard dependencies (used by Streamlit Cloud)
 requirements-notebooks.txt  additional packages for the notebooks
-docs/        screenshots of the dashboard
-AI_USAGE.md  documentation of AI assistance
+docs/screenshots/           screenshots of the dashboard
+AI_USAGE.md                 documentation of AI assistance
 ```
 
 ## The dashboard
