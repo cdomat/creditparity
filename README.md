@@ -100,7 +100,7 @@ data/                       dataset
 notebooks/                  one notebook per project phase (Google Colab compatible)
 model/                      final and comparison pipelines, decision policy, evaluation data (Step 8)
 app.py                      Streamlit app
-assets/logo.svg             CreditParity logo
+assets/logo.svg             CreditParity logo (logo_on_dark.svg: white version for the navy sidebar)
 .streamlit/config.toml      dashboard theme
 requirements.txt            dashboard dependencies (used by Streamlit Cloud)
 requirements-notebooks.txt  additional packages for the notebooks

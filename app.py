@@ -23,6 +23,7 @@ ROOT = Path(__file__).parent
 MODEL_DIR = ROOT / "model"
 DATA_PATH = ROOT / "data" / "german_credit_data_biased_training.csv"
 LOGO_PATH = ROOT / "assets" / "logo.svg"
+LOGO_ON_DARK_PATH = ROOT / "assets" / "logo_on_dark.svg"      # white tile for the navy sidebar
 
 st.set_page_config(page_title="CreditParity", page_icon=str(LOGO_PATH), layout="wide",
                    initial_sidebar_state="expanded")
@@ -143,6 +144,28 @@ st.markdown(f"""
   .cp-card p {{margin:0; color:{TEXT_SECONDARY}; font-size:.95rem; line-height:1.5;}}
   .cp-author {{text-align:center; color:{TEXT_SECONDARY}; margin-top:2.2rem; font-size:1rem;}}
   div[data-testid="stMetricValue"] {{color:{NAVY};}}
+  /* Sidebar navigation on navy (colors come from [theme.sidebar] in config.toml).
+     The radio circles are hidden; the selected page gets a lighter background and a light left border. */
+  section[data-testid="stSidebar"] [data-testid="stElementContainer"]:has([data-testid="stRadio"]),
+  section[data-testid="stSidebar"] [data-testid="stRadio"],
+  section[data-testid="stSidebar"] [data-testid="stRadio"] > div,
+  section[data-testid="stSidebar"] [role="radiogroup"] {{width:100%;}}
+  section[data-testid="stSidebar"] [role="radiogroup"] {{align-items:stretch; gap:.2rem;}}
+  section[data-testid="stSidebar"] label[data-testid="stRadioOption"] {{width:100%; box-sizing:border-box;
+      margin:0; padding:.5rem .7rem; border-radius:8px; border-left:3px solid transparent;
+      transition:background .15s;}}
+  section[data-testid="stSidebar"] label[data-testid="stRadioOption"] > div > div:first-child:not([data-testid]) {{
+      display:none;}}
+  section[data-testid="stSidebar"] label[data-testid="stRadioOption"] p {{color:#e3ebf6;}}
+  section[data-testid="stSidebar"] label[data-testid="stRadioOption"]:hover {{background:rgba(255,255,255,.10);}}
+  section[data-testid="stSidebar"] label[data-testid="stRadioOption"][data-selected="true"] {{
+      background:rgba(255,255,255,.17); border-left-color:#9cc8ff;}}
+  section[data-testid="stSidebar"] label[data-testid="stRadioOption"][data-selected="true"] p {{
+      color:#ffffff; font-weight:600;}}
+  section[data-testid="stSidebar"] label[data-testid="stRadioOption"]:has(input:focus-visible) {{
+      outline:2px solid #9cc8ff; outline-offset:1px;}}
+  section[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+  section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] p {{color:#c9d6e8; opacity:1;}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -740,7 +763,7 @@ SECTIONS = {"home": "🏠 Home", "single": "📝 Check a single application", "b
 
 def main():
     init_state()
-    st.logo(str(LOGO_PATH), size="large")
+    st.logo(str(LOGO_ON_DARK_PATH), size="large", icon_image=str(LOGO_PATH))
     requested = st.query_params.get("section", "home")
     keys = list(SECTIONS)
     with st.sidebar:

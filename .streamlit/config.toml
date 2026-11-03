@@ -6,6 +6,15 @@ secondaryBackgroundColor = "#f0f3f7"
 textColor = "#0b0b0b"
 font = "sans serif"
 
+# Sidebar in the navy of the CreditParity logo (#0d366b), with light text
+[theme.sidebar]
+backgroundColor = "#0d366b"
+secondaryBackgroundColor = "#1d4a82"
+textColor = "#ffffff"
+primaryColor = "#9cc8ff"
+linkColor = "#cfe3ff"
+borderColor = "#3b6299"
+
 [server]
 headless = true
 
