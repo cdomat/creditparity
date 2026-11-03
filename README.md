@@ -26,32 +26,26 @@ Instead of a simple approve/reject decision, CreditParity uses a **human-in-the-
 | 🟡 Yellow – manual review (0.15 ≤ PD < 0.71) | Uncertain cases: a credit analyst decides, supported by a SHAP explanation. This is the only manual workload. |
 | 🔴 Red – decline recommended (PD ≥ 0.71) | The system declines and gives the customer a SHAP-based explanation; the customer can request a human review |
 
-The zones are justified by **human oversight**, not by extra cost savings: the EU AI Act classifies credit scoring as a high-risk AI system that requires effective human oversight, and GDPR Art. 22 gives applicants the right to human intervention and to contest automated decisions. At the same time, the zones keep the analyst workload manageable by handling clear cases automatically.
+### Decision zones
 
-**Boundaries.** The lower boundary is the cost-optimal threshold (5:1 cost matrix). The upper boundary is the lowest threshold at which at least 80% of automatic declines are actual defaults (precision rule). Both are chosen on cross-validated predictions of the training data.
+Clear cases are handled automatically and uncertain cases go to a credit analyst. This reflects the human oversight required for high-risk AI systems such as credit scoring (EU AI Act) and keeps the analyst workload manageable.
 
-**Rating and zone.** Each application also gets a rating on a fixed master scale (A < 5%, B 5–15%, C 15–35%, D 35–70%, E ≥ 70% default probability). The rating describes the applicant's risk and depends only on the default probability, while the zone describes how the bank handles the application and follows the policy, so changing the policy can change the zone but never the rating.
+- **Lower boundary (approve):** the cost-optimal threshold based on a 5:1 cost matrix.
+- **Upper boundary (decline):** the lowest threshold at which at least 80% of automatic declines are actual defaults.
 
-**Final model (d).** A logistic regression trained with **reweighing** on age group, gender and foreign worker status, so that it does not learn the group differences in default rates. **Gender and foreign worker status are not model inputs**: no applicant's score depends directly on gender. `Age` stays as an input, as a correction for the many features that indirectly reveal age. The model with all features and no reweighing, (a), is kept as a comparison to show the price of fairness.
+Each application also gets a **risk rating** (A < 5%, B 5–15%, C 15–35%, D 35–70%, E ≥ 70% default probability). The rating describes the applicant's risk; the zone describes how the bank handles the application. Changing the bank's settings can change the zone, but never the rating.
 
-**Core message:** a simple, explainable model performs as well as a complex one. The real gain comes from catching more defaults with a cost-based threshold, combined with human judgment for uncertain cases. With the fair model, the weighted cost of wrong decisions (5:1 cost matrix) on the test set is still about **one third lower** than with the default threshold of 0.5 (467 vs. 700), while the age gap for creditworthy applicants drops from 0.81 to 0.37.
+### Final model
+
+A logistic regression trained with **reweighing**, so that it does not learn group differences in default rates. **Gender and nationality are not model inputs.** Age stays in the model as a correction for other features that indirectly reveal age.
+
+With the fair model, the cost of wrong decisions on the test set is **33% lower** than with a standard model at the usual 50% cut-off (467 vs. 700), while **no creditworthy applicant aged 51+ is declined automatically** (0 of 21, vs. 8 of 21 with the standard model).
 
 ### The price of fairness
 
-Compared with model (a), the fair model (d):
-- has a **14% higher cost of wrong decisions** (467 vs. 409 on the test set), but still a **33% lower cost of wrong decisions** than the default threshold of 0.5 (700);
-- sends more applications to manual review (**60% vs. 42%**);
-- auto-approves more defaults (**17 vs. 14**);
-- has a larger gender gap among good customers (0.17 vs. 0.11 on the test set), which works against men.
+Compared with the same model without fairness correction, CreditParity costs 14% more (467 vs. 409) and sends more applications to manual review (60% vs. 42%). In return, the age gap for creditworthy applicants falls from 0.81 to 0.37, and no score depends directly on gender or nationality.
 
-In return:
-- **no creditworthy applicant aged 51+ is declined automatically** on the test set (0 of 21, vs. 8 of 21 with model (a); on the training data 1 of 83 vs. 41 of 83);
-- the age gap for creditworthy applicants (EOD) falls from 0.81 to 0.37 (test set);
-- no applicant's score depends directly on gender or foreign worker status.
-
-### Equal treatment vs. equal outcomes for gender
-
-We also tested model (c), which uses gender (the `Sex` column) as an input. It almost removes the gender gap (0.03 on the test set), but only because, with all other features equal, it rates women as riskier than men. Every model that scores men and women with the same features identically shows a gender gap of about 0.2 against men, because men in this dataset have less favorable values on other features. CreditParity chooses **equal treatment**: no direct gender-based treatment is a core principle.
+We also tested a model that uses gender as an input. It almost removes the gender gap, but only by rating women as riskier than men with all other features equal. CreditParity chooses **equal treatment** instead and accepts a remaining gender gap of about 0.2, which works against men because of differences in other features.
 
 ## Data
 
