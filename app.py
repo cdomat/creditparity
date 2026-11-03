@@ -738,6 +738,8 @@ def main():
                         f"{ZONES['Yellow']['icon']} Review {lower:.0%} – {upper:.0%}  \n"
                         f"{ZONES['Red']['icon']} Decline from {upper:.0%}")
             st.caption("Change them under Bank settings.")
+        st.divider()
+        st.caption(f"[View source code on GitHub]({REPO_URL})")
 
     if choice != "home":
         header()
