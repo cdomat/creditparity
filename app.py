@@ -643,9 +643,8 @@ def section_settings():
             col.metric(f"{ZONES[z]['icon']} {ZONES[z]['short']}", f"{r[z]:.0%}", border=True)
         c = st.columns(2)
         c[0].metric("Cost of wrong decisions", f"{1 - r['Cost'] / baseline_cost:.0%} lower", border=True,
-                    help="Compared with a common baseline: a credit model without fairness correction that "
-                         "approves every application with a chance of default below 50%. A missed bad loan is counted as five times as costly as a turned-away good "
-                         "customer. This is a weighted count of wrong decisions, not the bank's actual credit losses.")
+                    help="Compared with a standard credit model at the usual 50% cut-off. A missed bad loan is "
+                         "counted as five times as costly as a turned-away good customer. This is a weighted count of wrong decisions, not the bank's actual credit losses.")
         c[1].metric("Bad loans caught", f"{r['Caught']:.0%}", border=True,
                     help="Share of bad loans that are not approved automatically.")
         c = st.columns(2)
