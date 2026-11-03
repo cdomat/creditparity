@@ -2,9 +2,9 @@
 
 Streamlit app for bank staff. Sections:
   Home                        – mission and overview
-  Check an application        – chance of default, risk rating, recommendation and main reasons
+  Check a single application  – chance of default, risk rating, recommendation and main reasons
   Check several applications  – score a CSV file and download the results
-  Bank settings               – decision rules and their effect on workload, losses and fairness
+  Bank settings               – decision rules and their effect on workload, cost of wrong decisions and fairness
   How it works                – plain-language explanation and important notes
 
 Models and data are loaded from model/ (created in notebook Step 8). Technical details are
@@ -23,7 +23,6 @@ ROOT = Path(__file__).parent
 MODEL_DIR = ROOT / "model"
 DATA_PATH = ROOT / "data" / "german_credit_data_biased_training.csv"
 LOGO_PATH = ROOT / "assets" / "logo.svg"
-REPO_URL = "https://github.com/cdomat/creditparity"
 
 st.set_page_config(page_title="CreditParity", page_icon=str(LOGO_PATH), layout="wide",
                    initial_sidebar_state="expanded")
@@ -113,23 +112,34 @@ st.markdown(f"""
 <style>
   .block-container {{padding-top: 3.2rem; max-width: 1200px;}}
   h1, h2, h3, h4 {{color: {NAVY};}}
-  .cp-header {{display:flex; align-items:center; gap:.7rem; margin-bottom:.4rem;}}
-  .cp-title {{font-size:1.9rem; font-weight:700; color:{NAVY}; letter-spacing:-.01em;}}
-  .cp-tagline {{font-size:1.02rem; color:{TEXT_SECONDARY};}}
+  .cp-header {{display:flex; align-items:center; gap:.7rem; margin-bottom:1.2rem;}}
+  .cp-title {{font-size:1.5rem; font-weight:700; color:{NAVY}; letter-spacing:-.01em;}}
+  .cp-tagline {{font-size:1rem; color:{TEXT_SECONDARY};}}
+  /* centered page title + intro, used on every page */
+  .cp-intro {{text-align:center; max-width:720px; margin:0 auto 1.6rem auto;}}
+  .cp-page-title {{font-size:1.9rem; font-weight:700; color:{NAVY}; line-height:1.25; margin:0 0 .45rem 0;}}
+  .cp-intro p {{font-size:1.05rem; line-height:1.6; color:{TEXT_SECONDARY}; margin:0;}}
+  .cp-section {{font-size:1.25rem; font-weight:700; color:{NAVY}; margin:1.8rem 0 .8rem 0;}}
+  .cp-section.cp-center {{text-align:center;}}
   .cp-badge {{display:inline-flex; align-items:center; gap:.45rem; padding:.3rem .8rem;
              border-radius:999px; font-weight:600; font-size:1rem; border:1px solid #d9dde3;
              background:#ffffff; color:#0b0b0b;}}
   .cp-dot {{width:.75rem; height:.75rem; border-radius:50%; display:inline-block;}}
   .cp-pd {{font-size:3.2rem; font-weight:700; color:{NAVY}; line-height:1.1;}}
   .cp-muted {{color:{TEXT_SECONDARY}; font-size:.95rem;}}
-  .cp-hero {{text-align:center; padding: 2.5rem 1rem 1.5rem 1rem;}}
-  .cp-hero h1 {{font-size:3rem; margin:.6rem 0 .2rem 0; color:{NAVY};}}
-  .cp-hero .cp-tagline {{font-size:1.25rem;}}
-  .cp-mission {{max-width:720px; margin: 1.2rem auto 0 auto; font-size:1.12rem; line-height:1.65;
-               color:#0b0b0b;}}
+  .cp-hero {{text-align:center; padding:2rem 1rem 0 1rem; max-width:720px; margin:0 auto;}}
+  .cp-hero img {{display:block; margin:0 auto;}}
+  .cp-hero-title {{font-size:3rem; font-weight:700; color:{NAVY}; line-height:1.15; margin:.8rem 0 .3rem 0;}}
+  .cp-hero .cp-tagline {{font-size:1.25rem; margin:0;}}
+  .cp-hero p.cp-mission {{margin:1.3rem 0 0 0 !important; font-size:1.1rem; line-height:1.65; color:#0b0b0b;}}
+  /* card rows: CSS grid, so every card in a row has the same height */
+  .cp-grid {{display:grid; gap:1rem; align-items:stretch; margin-bottom:.5rem;}}
+  .cp-grid-4 {{grid-template-columns:repeat(4, minmax(0, 1fr));}}
+  .cp-grid-3 {{grid-template-columns:repeat(3, minmax(0, 1fr));}}
+  @media (max-width: 900px) {{ .cp-grid-4, .cp-grid-3 {{grid-template-columns:1fr;}} }}
   .cp-card {{background:#ffffff; border:1px solid #e3e6ea; border-radius:12px; padding:1.1rem 1.2rem;
-            height:100%;}}
-  .cp-card h4 {{margin:.2rem 0 .4rem 0; font-size:1.05rem;}}
+            display:flex; flex-direction:column;}}
+  .cp-card-title {{font-size:1.05rem; font-weight:700; color:{NAVY}; margin:0 0 .45rem 0; line-height:1.35;}}
   .cp-card p {{margin:0; color:{TEXT_SECONDARY}; font-size:.95rem; line-height:1.5;}}
   .cp-author {{text-align:center; color:{TEXT_SECONDARY}; margin-top:2.2rem; font-size:1rem;}}
   div[data-testid="stMetricValue"] {{color:{NAVY};}}
@@ -228,21 +238,28 @@ def init_state():
             st.session_state[k] = st.session_state[k]
     st.session_state.setdefault("lower_d", POLICY["models"]["d"]["lower_boundary"])
     st.session_state.setdefault("target", POLICY["target_precision"])
-    st.session_state.setdefault("compare", False)
     for f, v in form_defaults().items():
         if f not in NOT_USED:
             st.session_state.setdefault(f"f_{f}", v)
 
 
-def persist(widget_key, state_key):
-    st.session_state[state_key] = st.session_state[widget_key]
+# The sliders work in whole percent (15 = 15%); the settings are stored as shares (0.15).
+SETTING_WIDGETS = {"lower_d": "w_lower_d", "target": "w_target"}
+
+
+def to_percent(share):
+    return int(round(share * 100))
+
+
+def persist(state_key):
+    st.session_state[state_key] = round(st.session_state[SETTING_WIDGETS[state_key]] / 100, 2)
 
 
 def reset_settings():
-    st.session_state["lower_d"] = POLICY["models"]["d"]["lower_boundary"]
-    st.session_state["target"] = POLICY["target_precision"]
-    st.session_state.pop("w_lower_d", None)
-    st.session_state.pop("w_target", None)
+    recommended = {"lower_d": POLICY["models"]["d"]["lower_boundary"], "target": POLICY["target_precision"]}
+    for state_key, value in recommended.items():
+        st.session_state[state_key] = value
+        st.session_state[SETTING_WIDGETS[state_key]] = to_percent(value)
 
 
 def current_policy(model_key="d"):
@@ -294,6 +311,22 @@ def header():
                 '<span class="cp-title">CreditParity</span>'
                 '<span class="cp-tagline">Profitable, Fair Lending Decisions</span></div>',
                 unsafe_allow_html=True)
+
+
+def page_intro(title, text):
+    """Centered page title with a short explanation (same on every page)."""
+    st.markdown(f'<div class="cp-intro"><div class="cp-page-title">{title}</div><p>{text}</p></div>',
+                unsafe_allow_html=True)
+
+
+def section_title(text, center=False):
+    st.markdown(f'<div class="cp-section{" cp-center" if center else ""}">{text}</div>', unsafe_allow_html=True)
+
+
+def card_grid(cards):
+    """A row of equally high cards."""
+    html = "".join(f'<div class="cp-card"><div class="cp-card-title">{t}</div><p>{x}</p></div>' for t, x in cards)
+    st.markdown(f'<div class="cp-grid cp-grid-{len(cards)}">{html}</div>', unsafe_allow_html=True)
 
 
 def zone_badge(zone, rating=None):
@@ -358,33 +391,31 @@ def section_home():
     st.markdown(f"""
 <div class="cp-hero">
   <img src="{logo_data_uri()}" width="96" alt="CreditParity logo">
-  <h1>CreditParity</h1>
-  <div class="cp-tagline">Profitable, Fair Lending Decisions</div>
-  <p class="cp-mission">Our mission is to help banks lend responsibly and fairly. CreditParity estimates
-  how likely an applicant is to repay, explains the result in plain words and leaves uncertain cases to
-  people, so that good customers are not turned away because of their age, sex or origin.</p>
+  <div class="cp-hero-title">CreditParity</div>
+  <p class="cp-tagline">Profitable, Fair Lending Decisions</p>
+  <p class="cp-mission">Our mission is to help banks lend responsibly and fairly. CreditParity estimates how
+  likely an applicant is to repay, explains the result in plain words and leaves uncertain cases to people.
+  It does not use gender or nationality and corrects for hidden age bias, so that good customers are
+  treated more fairly.</p>
 </div>
 """, unsafe_allow_html=True)
 
-    st.markdown("#### What you can do")
-    cards = [
-        ("📝 Check an application", "Enter the details of one loan application and get the chance of default, "
-                                    "a risk rating, a recommendation and the main reasons."),
+    section_title("What you can do", center=True)
+    card_grid([
+        ("📝 Check a single application", "Enter the details of one loan application and get the chance of "
+                                          "default, a risk rating, a recommendation and the main reasons."),
         ("📂 Check several applications", "Upload a file with many applications and download the results "
                                           "for all of them at once."),
         ("⚙️ Bank settings", "Decide when applications are approved or declined automatically and see the effect "
-                            "on workload, losses and fairness."),
+                            "on workload, cost of wrong decisions and fairness."),
         ("💡 How it works", "Learn how CreditParity reaches its recommendations and what to keep in mind."),
-    ]
-    cols = st.columns(4)
-    for col, (title, text) in zip(cols, cards):
-        col.markdown(f'<div class="cp-card"><h4>{title}</h4><p>{text}</p></div>', unsafe_allow_html=True)
+    ])
 
     st.markdown('<div class="cp-author">Created by <b>Carina Domat</b></div>', unsafe_allow_html=True)
 
 
 # --------------------------------------------------------------------------------------
-# Check an application
+# Check a single application
 # --------------------------------------------------------------------------------------
 def field_input(f):
     key = f"f_{f}"
@@ -400,20 +431,19 @@ def field_input(f):
 
 
 def section_application():
-    st.subheader("Check an application")
-    st.markdown('<span class="cp-muted">Enter the details of the loan application. '
-                'The result on the right updates immediately.</span>', unsafe_allow_html=True)
+    page_intro("Check a single application",
+               "Enter the details of the loan application. The result on the right updates immediately.")
 
     left, right = st.columns([1, 1.15], gap="large")
     with left:
         for title, feats in FORM_GROUPS.items():
             with st.container(border=True):
-                st.markdown(f"**{title}**")
+                st.markdown(f'<div class="cp-card-title">{title}</div>', unsafe_allow_html=True)
                 cols = st.columns(2)
                 for i, f in enumerate(feats):
                     with cols[i % 2]:
                         field_input(f)
-        st.caption("Sex and nationality are not asked for: CreditParity does not use them.")
+        st.caption("Gender and nationality are not asked for: CreditParity does not use them.")
 
     row = pd.DataFrame([{f: st.session_state[f"f_{f}"] for f in INPUT_FEATURES if f not in NOT_USED}])
     p = float(predict(row)[0])
@@ -430,14 +460,14 @@ def section_application():
             st.markdown(f'<p style="margin-top:.7rem">{ZONES[zone]["advice"]}</p>', unsafe_allow_html=True)
             st.caption(f"Risk rating {rating} = {RATING_TEXT[rating]} (scale from A, lowest risk, to E, highest risk).")
 
-        st.markdown("**Main reasons for this result**")
+        section_title("Main reasons for this result")
         st.altair_chart(reasons_chart(contrib, row.iloc[0]), width="stretch")
         st.caption("↑ Red bars increase the risk, ↓ blue bars lower it. Longer bars have more influence. "
                    "Age is only used to correct for age effects hidden in other information, so that "
                    "applicants are not treated unfairly because of their age.")
 
         if zone == "Yellow":
-            st.markdown("**Summary for the credit analyst**")
+            section_title("Summary for the credit analyst")
             summary = analyst_summary(row.iloc[0], p, rating, zone, contrib)
             st.code(summary, language=None, wrap_lines=True)
             st.download_button("Download summary", summary, file_name="application_summary.txt")
@@ -458,9 +488,9 @@ def sample_csv():
 
 
 def section_batch():
-    st.subheader("Check several applications")
-    st.markdown('<span class="cp-muted">Upload a CSV file with one application per row. '
-                'Download the example file to see the expected format.</span>', unsafe_allow_html=True)
+    page_intro("Check several applications",
+               "Upload a CSV file with one application per row. "
+               "Download the example file to see the expected format.")
     c1, c2 = st.columns([2, 1])
     with c1:
         uploaded = st.file_uploader("CSV file", type="csv", label_visibility="collapsed")
@@ -499,9 +529,10 @@ def section_batch():
     })
 
     cols = st.columns(4)
-    cols[0].metric("Applications", f"{len(results):,}")
+    cols[0].metric("Applications", f"{len(results):,}", border=True)
     for col, z in zip(cols[1:], ZONE_ORDER):
-        col.metric(f"{ZONES[z]['icon']} {ZONES[z]['label']}", f"{(zones == z).sum():,} ({(zones == z).mean():.0%})")
+        col.metric(f"{ZONES[z]['icon']} {ZONES[z]['label']}", f"{(zones == z).sum():,} ({(zones == z).mean():.0%})",
+                   border=True)
 
     st.dataframe(results, hide_index=True, width="stretch", height=420,
                  column_config={"Chance of default (%)": st.column_config.ProgressColumn(
@@ -565,112 +596,99 @@ def zone_share_chart(table):
     labels = [f"{ZONES[z]['icon']} {ZONES[z]['short']}" for z in ZONE_ORDER]
     return alt.Chart(df).mark_bar(stroke=SURFACE, strokeWidth=2).encode(
         x=alt.X("start:Q", title=None, scale=alt.Scale(domain=[0, 1]),
-                axis=alt.Axis(format="%", gridColor="#ececea", labelColor=TEXT_SECONDARY)),
+                axis=alt.Axis(format="%", values=[0, .25, .5, .75, 1], gridColor="#ececea",
+                              labelColor=TEXT_SECONDARY)),
         x2="end:Q",
         y=alt.Y("Group:N", sort=order, title=None, scale=alt.Scale(paddingInner=0.25),
                 axis=alt.Axis(labelColor="#0b0b0b", labelLimit=200)),
         color=alt.Color("Result:N", sort=labels, scale=alt.Scale(domain=labels,
                         range=[ZONES[z]["color"] for z in ZONE_ORDER]),
-                        legend=alt.Legend(orient="bottom", direction="vertical", title=None, labelLimit=260)),
+                        legend=alt.Legend(orient="top", direction="horizontal", title=None, labelLimit=260,
+                                         columnPadding=20)),
         tooltip=["Group", "Result", "Share"],
     ).properties(height=44 * len(order)).configure_view(stroke=None)
 
 
 def section_settings():
-    st.subheader("Bank settings")
-    st.markdown('<span class="cp-muted">Decide when applications are handled automatically. The results below '
-                'show what these settings would have meant for 1,000 past applications.</span>',
-                unsafe_allow_html=True)
+    page_intro("Bank settings",
+               "Decide when applications are handled automatically. The results show what these settings "
+               "would have meant for 1,000 past applications.")
+
+    rec_lower = to_percent(POLICY["models"]["d"]["lower_boundary"])
+    rec_target = to_percent(POLICY["target_precision"])
+    for state_key, widget_key in SETTING_WIDGETS.items():          # restore after switching pages
+        if widget_key not in st.session_state:
+            st.session_state[widget_key] = to_percent(st.session_state[state_key])
 
     controls, results = st.columns([1, 2], gap="large")
     with controls:
         with st.container(border=True):
-            st.slider("Approve automatically when the chance of default is below", 0.05, 0.40, step=0.01,
-                      value=st.session_state["lower_d"], key="w_lower_d", format="%.2f",
-                      on_change=persist, args=("w_lower_d", "lower_d"),
-                      help="Recommended: 0.15. This value keeps the expected losses lowest.")
+            st.slider("Approve automatically when the chance of default is below", 5, 40, step=1,
+                      key="w_lower_d", format="%d%%", on_change=persist, args=("lower_d",),
+                      help=f"Recommended: {rec_lower}%. This value keeps the cost of wrong decisions lowest.")
             st.slider("Decline automatically only if at least this share of declines are truly bad loans",
-                      0.70, 0.95, step=0.01, value=st.session_state["target"], key="w_target", format="%.2f",
-                      on_change=persist, args=("w_target", "target"),
-                      help="Recommended: 0.80. Higher values mean fewer good customers are declined "
+                      70, 95, step=1, key="w_target", format="%d%%", on_change=persist, args=("target",),
+                      help=f"Recommended: {rec_target}%. Higher values mean fewer good customers are declined "
                            "automatically, but more applications need a manual review.")
             lower, upper, _ = current_policy()
             st.markdown(f"→ Approved automatically below **{lower:.0%}** chance of default, declined "
                         f"automatically from **{upper:.0%}**, everything in between is reviewed by an analyst.")
             st.button("Back to recommended settings", on_click=reset_settings)
-            st.toggle("Compare with a standard model without fairness correction", key="compare")
 
-    compare = st.session_state["compare"]
     r = policy_results("d", lower, upper)
-    lo_a, up_a, _ = current_policy("a")
-    ra = policy_results("a", lo_a, up_a)
-    standard_cost = policy_results("a", 0.5, 0.5)["Cost"]
-    note = lambda v: f"Standard model: {v}" if compare else None
-    kw = {"delta_color": "off", "delta_arrow": "off"}
+    baseline_cost = policy_results("a", 0.5, 0.5)["Cost"]
     with results:
         c = st.columns(3)
         for col, z in zip(c, ZONE_ORDER):
-            col.metric(f"{ZONES[z]['icon']} {ZONES[z]['short']}", f"{r[z]:.0%}", note(f"{ra[z]:.0%}"), **kw)
+            col.metric(f"{ZONES[z]['icon']} {ZONES[z]['short']}", f"{r[z]:.0%}", border=True)
         c = st.columns(2)
-        c[0].metric("Lower losses vs. a standard rule", f"{1 - r['Cost'] / standard_cost:.0%}",
-                    note(f"{1 - ra['Cost'] / standard_cost:.0%}"), **kw,
-                    help="Compared with approving every application with a chance of default below 50%. "
-                         "A missed bad loan is counted as five times as costly as a turned-away good customer.")
-        c[1].metric("Bad loans caught", f"{r['Caught']:.0%}", note(f"{ra['Caught']:.0%}"), **kw,
+        c[0].metric("Cost of wrong decisions", f"{1 - r['Cost'] / baseline_cost:.0%} lower", border=True,
+                    help="Compared with a common baseline: a credit model without fairness correction that "
+                         "approves every application with a chance of default below 50%. A missed bad loan is counted as five times as costly as a turned-away good "
+                         "customer. This is a weighted count of wrong decisions, not the bank's actual credit losses.")
+        c[1].metric("Bad loans caught", f"{r['Caught']:.0%}", border=True,
                     help="Share of bad loans that are not approved automatically.")
         c = st.columns(2)
-        c[0].metric("Good customers declined automatically", f"{r['Good declined']}",
-                    note(ra["Good declined"]), **kw,
+        c[0].metric("Good customers declined automatically", f"{r['Good declined']}", border=True,
                     help=f"Out of {r['n_good']} good customers among the {r['n']:,} past applications.")
-        c[1].metric("Bad loans approved automatically", f"{r['Bad approved']}", note(ra["Bad approved"]), **kw,
+        c[1].metric("Bad loans approved automatically", f"{r['Bad approved']}", border=True,
                     help=f"Out of {r['n_bad']} bad loans among the {r['n']:,} past applications.")
-        c = st.columns(2)
-        c[0].metric("Good customers aged 51+ declined automatically", r["Good 51+ declined"],
-                    note(ra["Good 51+ declined"]), **kw)
 
-    st.markdown("#### Fairness check")
+    section_title("Fairness check")
     st.markdown('<span class="cp-muted">How are different groups of applicants handled? In a fair process, '
                 'similar shares of good customers should be approved in every group.</span>',
                 unsafe_allow_html=True)
     table = group_table("d", lower, upper)
-    left, right = st.columns([1.2, 1], gap="large")
+    st.altair_chart(zone_share_chart(table), width="stretch")
+    left, right = st.columns([1, 1.6], gap="large")
     with left:
-        st.altair_chart(zone_share_chart(table), width="stretch")
+        st.metric("Good customers aged 51+ declined automatically", r["Good 51+ declined"], border=True)
     with right:
         show = table.set_index("Group")[["Good customers not approved automatically"]]
-        if compare:
-            show = show.rename(columns={"Good customers not approved automatically": "CreditParity"})
-            show["Standard model"] = group_table("a", lo_a, up_a).set_index("Group")[
-                "Good customers not approved automatically"]
         st.dataframe(show.style.format("{:.0%}"), width="stretch")
         st.caption("Share of good customers in each group who are not approved automatically (they are reviewed "
                    "or declined). Groups with few applicants (not a foreign worker, age 51+) are less reliable.")
-    if compare:
-        st.markdown("**Standard model without fairness correction**")
-        st.altair_chart(zone_share_chart(group_table("a", lo_a, up_a)), width="stretch")
 
 
 # --------------------------------------------------------------------------------------
 # How it works
 # --------------------------------------------------------------------------------------
 def section_about():
-    st.subheader("How it works")
+    page_intro("How it works",
+               "How CreditParity reaches its recommendations, how to read them and what to keep in mind.")
 
-    st.markdown("#### From application to recommendation")
-    steps = [
+    section_title("From application to recommendation")
+    card_grid([
         ("1 · Estimate the risk", "CreditParity compares the application with thousands of past loans and "
                                   "estimates the chance that the loan will not be repaid."),
         ("2 · Sort into three groups", "Low-risk applications are approved automatically, high-risk "
                                        "applications are declined, and uncertain ones go to a credit analyst."),
         ("3 · People decide", "Analysts make the final decision on uncertain cases, and every declined "
                               "applicant can ask for a personal review."),
-    ]
-    cols = st.columns(3)
-    for col, (title, text) in zip(cols, steps):
-        col.markdown(f'<div class="cp-card"><h4>{title}</h4><p>{text}</p></div>', unsafe_allow_html=True)
+    ])
 
     lower, upper, _ = current_policy()
-    st.markdown("#### Risk rating and recommendation")
+    section_title("Risk rating and recommendation")
     st.markdown("The risk rating (A–E) describes the applicant's risk and depends only on the chance of default; "
                 "the recommendation (approve, review, decline) describes how the bank handles the application and "
                 "follows the bank settings, so changing the settings can change the recommendation but never the "
@@ -689,14 +707,16 @@ def section_about():
          "Chance of default": f"{upper:.0%} or more"},
     ]), hide_index=True, width="stretch")
 
-    st.markdown("#### Our fairness promise")
+    section_title("Our fairness promise")
     st.markdown(
-        "- **Sex and nationality are never used.** Two applicants who differ only in these points get the same result.\n"
-        "- **Older applicants are not turned away automatically.** A standard model would decline many creditworthy "
-        "applicants over 50; CreditParity corrects for this and sends uncertain cases to a person instead.\n"
+        "- **Gender and nationality are never used.** Two applicants who differ only in these points get the same "
+        "result.\n"
+        "- **Hidden age bias is corrected.** Age is used only to offset age effects hidden in other information. "
+        "With the recommended settings, none of the 21 creditworthy applicants aged 51+ among the past applications "
+        "was declined automatically; uncertain cases go to a person instead.\n"
         "- **Every result is explained.** Analysts see the main reasons behind each recommendation.")
 
-    st.markdown("#### Good to know")
+    section_title("Good to know")
     st.markdown(
         "- The results are **estimates, not certainties**. They are based on example data, not on real customers.\n"
         "- To correct for age, CreditParity rates **young applicants as riskier** than their group's actual track "
@@ -704,19 +724,18 @@ def section_about():
         "sent to an analyst rather than declined (only about 2.5% are declined automatically).\n"
         "- About **6 in 10 applications go to a credit analyst** with the recommended settings. The bank settings "
         "can reduce this workload, at the price of more automatic declines.\n"
-        "- Even without using sex as an input, **men are approved automatically less often than women**, because "
+        "- Even without using gender as an input, **men are approved automatically less often than women**, because "
         "their other information differs on average.\n"
         "- The recommended settings are business choices and should be **confirmed by the bank's risk and "
         "compliance teams** before real use. A legal review is needed before CreditParity is used with real "
         "customers.\n"
         "- The explanations are meant for **bank staff**. A version written for applicants is planned.")
-    st.caption(f"Technical documentation and methodology: [project repository on GitHub]({REPO_URL}).")
 
 
 # --------------------------------------------------------------------------------------
 # Navigation
 # --------------------------------------------------------------------------------------
-SECTIONS = {"home": "🏠 Home", "single": "📝 Check an application", "batch": "📂 Check several applications",
+SECTIONS = {"home": "🏠 Home", "single": "📝 Check a single application", "batch": "📂 Check several applications",
             "bank": "⚙️ Bank settings", "info": "💡 How it works"}
 
 
@@ -738,8 +757,6 @@ def main():
                         f"{ZONES['Yellow']['icon']} Review {lower:.0%} – {upper:.0%}  \n"
                         f"{ZONES['Red']['icon']} Decline from {upper:.0%}")
             st.caption("Change them under Bank settings.")
-        st.divider()
-        st.caption(f"[View source code on GitHub]({REPO_URL})")
 
     if choice != "home":
         header()
