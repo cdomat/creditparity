@@ -1,4 +1,4 @@
-# CreditParity – Profitable, Fair Lending Decisions
+# CreditParity: Profitable, Fair Lending Decisions
 
 > **Live app: [creditparity.streamlit.app](https://creditparity.streamlit.app)**
 
