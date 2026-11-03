@@ -75,21 +75,17 @@ An initial analysis with IBM watsonx AutoAI selected an XGBoost pipeline by accu
 
 ## Limitations
 
-- The dataset is **synthetic**. Some relationships are implausible, e.g. a negative checking account balance (`CheckingStatus = less_0`) has the lowest default rate. Results may not transfer to real loan data.
-- The **5:1 cost ratio** is an assumption, not an estimate from real loss data.
-- The 80% precision target for automatic declines is a business assumption. Before deployment it should be validated with the bank's risk and compliance teams. In operation, the thresholds should be monitored regularly and adjusted to the available analyst capacity: a higher target reduces wrongful automatic declines but increases the manual review workload.
-- About 60% of applications go to manual review. The bank can adjust the precision target to balance analyst workload against wrongful automatic declines; thresholds should be monitored and adjusted to the available analyst capacity.
-- The fair model auto-approves more defaults than model (a) (17 vs. 14 on the test set), because its lower boundary is higher (0.15 vs. 0.11) and it separates defaults from good customers less sharply.
-- Cost figures assume that every application with a default probability ≥ 0.15 is declined. Analyst decisions in the yellow zone and human reviews requested in the red zone may change some decisions; the dataset cannot show how this affects cost.
-- The model does not use gender or foreign worker status as inputs. The remaining gender gap of about 0.2 among good customers works against men and results from differences in other features. It should be reviewed legally (direct vs. indirect discrimination) and monitored in operation.
-- Age is still used directly as a correction for its proxies. This also needs legal review.
-- **The age correction shifts predicted risk toward younger applicants.** On the test set, applicants aged 19–25 are rated about **4× riskier than their actual default rate** (average predicted default probability 21% vs. 5%), while applicants aged 51+ are rated **less risky** than their actual default rate (50% vs. 76%). The correction is strong: with all other fields unchanged, ten years younger multiplies the odds of default by 2.55, so age alone can move an application across zones.
-- **Affected young applicants are mostly routed to manual review, not declined.** 42% of good customers aged 19–25 are not auto-approved (17% without reweighing), but only **2.5% are declined automatically** (out-of-fold training predictions); the rest are decided by an analyst.
-- **Possible next step: partial reweighing.** Applying the reweighing only partly (a correction strength between no reweighing and full reweighing) could balance the remaining age gap against this shift toward younger applicants.
-- Reweighing uses age group, gender and foreign worker status to compute the training weights, which also belongs in the legal review.
-- Explanations are analyst-facing only. A customer-facing explanation for automatic declines (GDPR Art. 22 right to meaningful information) is a next step that requires legal review.
-- SHAP explains the model, not the causes of default.
-- Small groups: only 123 applicants have `ForeignWorker = no` (23 in the test set), so fairness metrics for this group are uncertain.
+1. **Synthetic data.** The dataset is synthetic and some relationships are implausible (e.g. a negative checking balance has the lowest default rate). Results may not transfer to real loan data.
+
+2. **Business assumptions.** The 5:1 cost ratio and the 80% precision target for automatic declines are assumptions, not estimates from real data. Both should be validated with the bank's risk and compliance teams before deployment.
+
+3. **Manual review workload.** About 60% of applications go to manual review. A higher precision target reduces wrongful automatic declines but increases this workload, so thresholds should be monitored and adjusted to the available analyst capacity. Cost figures do not include how analyst decisions change outcomes.
+
+4. **Remaining fairness trade-offs.** The model does not use gender or nationality, but a gender gap of about 0.2 among good customers remains, working against men. The age correction shifts predicted risk toward younger applicants: those aged 19–25 are rated riskier than their actual default rate. Most of them are routed to manual review rather than declined (2.5% declined automatically). Partial reweighing could balance these effects in a next step.
+
+5. **Legal review needed.** Age is used directly as a correction for hidden age bias, and gender and nationality are used to compute the training weights. Both, as well as the remaining gender gap, require legal review before real-world use.
+
+6. **Explanations for analysts only.** Explanations are designed for credit analysts. Customer-facing explanations for automatic declines (GDPR Art. 22) are a next step.
 
 ## Repository structure
 
@@ -110,45 +106,10 @@ AI_USAGE.md                 documentation of AI assistance
 
 `app.py` is a Streamlit app for bank staff without a technical background. It uses plain language; the technical details are documented in the notebooks and in this README.
 
-- **Home** – mission, a short overview of the sections and the logo (`assets/logo.svg`).
-- **Check a single application** – one form for all application fields (gender and nationality are not asked for). Shows the chance of default, the risk rating (A–E), the recommendation (approve automatically, manual review, decline recommended), the main reasons for the result (exact SHAP values, shown without numbers; age is labelled "Age (fairness correction)") and a summary for the credit analyst in the manual review zone.
-- **Check several applications** – upload a CSV file (an example file can be downloaded in the app) and download the results.
-- **Bank settings** – two sliders: the chance of default below which applications are approved automatically, and the share of automatic declines that must be truly bad loans. Workload, cost of wrong decisions, bad loans caught and a fairness check by group update live on the 1,000 test applications. A reset button restores the recommended settings (15% and 80%). The comparison with model (a) (price of fairness) is documented in this README and the notebooks, not in the app.
-- **How it works** – how recommendations are made, risk rating vs. recommendation, the fairness promise and the most important limitations in plain words.
+- **Home:** Mission, a short overview of the sections and the logo (`assets/logo.svg`).
+- **Check a single application:** One form for all application fields (gender and nationality are not asked for). Shows the chance of default, the risk rating (A–E), the recommendation (approve automatically, manual review, decline recommended), the main reasons for the result (exact SHAP values, shown without numbers; age is labelled "Age (fairness correction)") and a summary for the credit analyst in the manual review zone.
+- **Check several applications:** Upload a CSV file (an example file can be downloaded in the app) and download the results.
+- **Bank settings:** Two sliders: the chance of default below which applications are approved automatically, and the share of automatic declines that must be truly bad loans. Workload, cost of wrong decisions, bad loans caught and a fairness check by group update live on the 1,000 test applications. A reset button restores the recommended settings (15% and 80%). The comparison with model (a) (price of fairness) is documented in this README and the notebooks, not in the app.
+- **How it works:** How recommendations are made, risk rating vs. recommendation, the fairness promise and the most important limitations in plain words.
 
 Screenshots: [home](docs/screenshots/0_home.png) · [check a single application](docs/screenshots/1_check_a_single_application.png) · [check several applications](docs/screenshots/2_check_several_applications.png) · [bank settings](docs/screenshots/3_bank_settings.png) · [how it works](docs/screenshots/4_how_it_works.png)
-
-Run it locally (Python 3.13):
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-streamlit run app.py
-```
-
-The app opens at http://localhost:8501. It only needs the files in `model/` and `data/`; it never retrains a model.
-
-## Deployment on Streamlit Community Cloud
-
-The app is ready for [Streamlit Community Cloud](https://share.streamlit.io) (free for public GitHub repositories):
-
-1. Push the repository to GitHub (the `model/` and `data/` folders must be included).
-2. Sign in at https://share.streamlit.io with your GitHub account and click **Create app** → **Deploy a public app from GitHub**.
-3. Select this repository, branch `main` and main file path `app.py`.
-4. Under **Advanced settings**, choose **Python 3.13**. The saved model was created with scikit-learn 1.9.1, which `requirements.txt` pins; other versions may fail to load it.
-5. Optionally choose a custom subdomain (e.g. `creditparity`) and click **Deploy**. The first build takes a few minutes.
-6. Copy the app URL into the "Live app" line at the top of this README (this project: https://creditparity.streamlit.app).
-
-Streamlit Cloud installs only `requirements.txt` (the dashboard dependencies) and applies the theme in `.streamlit/config.toml`. Every push to `main` redeploys the app automatically.
-
-## Running the notebooks locally
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-notebooks.txt
-jupyter notebook notebooks/
-```
-
-`requirements-notebooks.txt` adds the analysis packages (matplotlib, seaborn, shap, fairlearn, xgboost, jupyter) to the dashboard requirements. In Google Colab, upload the CSV and set `DATA_PATH = "german_credit_data_biased_training.csv"` in the loading cell; XGBoost, shap and the other packages are available there or can be installed with `pip`. On macOS, XGBoost needs the OpenMP runtime (`brew install libomp`).
