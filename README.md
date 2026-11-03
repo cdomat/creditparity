@@ -1,14 +1,12 @@
-# CreditParity – Profitable, Fair Lending Decisions
-
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://creditparity.streamlit.app)
+# CreditParity: Profitable, Fair Lending Decisions
 
 > **Live app: [creditparity.streamlit.app](https://creditparity.streamlit.app)**
 
-CreditParity is a credit risk scoring prototype for a bank's retail customers that aims to be both **profitable** and **demonstrably fair**. The name refers to *Demographic Parity*, one of the fairness metrics we measure.
+CreditParity is a credit risk scoring prototype for a bank's retail customers that aims to be both **profitable** and **demonstrably fair**. 
 
-A credit analyst enters a single loan application (or uploads several as a CSV) and receives a default probability, a rating class, a decision zone and an explanation of the main drivers.
+**How it works:** A credit analyst enters a single loan application (or uploads several as a CSV) and receives a default probability, a rating class, a decision zone and an explanation of the main drivers.
 
-![CreditParity home page](docs/screenshots/0_home.png)
+![CreditParity home page](docs/screenshots/5_creditparity_banner.png)
 
 
 ## Business case
@@ -28,32 +26,26 @@ Instead of a simple approve/reject decision, CreditParity uses a **human-in-the-
 | 🟡 Yellow – manual review (0.15 ≤ PD < 0.71) | Uncertain cases: a credit analyst decides, supported by a SHAP explanation. This is the only manual workload. |
 | 🔴 Red – decline recommended (PD ≥ 0.71) | The system declines and gives the customer a SHAP-based explanation; the customer can request a human review |
 
-The zones are justified by **human oversight**, not by extra cost savings: the EU AI Act classifies credit scoring as a high-risk AI system that requires effective human oversight, and GDPR Art. 22 gives applicants the right to human intervention and to contest automated decisions. At the same time, the zones keep the analyst workload manageable by handling clear cases automatically.
+### Decision zones
 
-**Boundaries.** The lower boundary is the cost-optimal threshold (5:1 cost matrix). The upper boundary is the lowest threshold at which at least 80% of automatic declines are actual defaults (precision rule). Both are chosen on cross-validated predictions of the training data.
+Clear cases are handled automatically and uncertain cases go to a credit analyst. This reflects the human oversight required for high-risk AI systems such as credit scoring (EU AI Act) and keeps the analyst workload manageable.
 
-**Rating and zone.** Each application also gets a rating on a fixed master scale (A < 5%, B 5–15%, C 15–35%, D 35–70%, E ≥ 70% default probability). The rating describes the applicant's risk and depends only on the default probability, while the zone describes how the bank handles the application and follows the policy, so changing the policy can change the zone but never the rating.
+- **Lower boundary (approve):** the cost-optimal threshold based on a 5:1 cost matrix.
+- **Upper boundary (decline):** the lowest threshold at which at least 80% of automatic declines are actual defaults.
 
-**Final model (d).** A logistic regression trained with **reweighing** on age group, gender and foreign worker status, so that it does not learn the group differences in default rates. **Gender and foreign worker status are not model inputs**: no applicant's score depends directly on gender. `Age` stays as an input, as a correction for the many features that indirectly reveal age. The model with all features and no reweighing, (a), is kept as a comparison to show the price of fairness.
+Each application also gets a **risk rating** (A < 5%, B 5–15%, C 15–35%, D 35–70%, E ≥ 70% default probability). The rating describes the applicant's risk; the zone describes how the bank handles the application. Changing the bank's settings can change the zone, but never the rating.
 
-**Core message:** a simple, explainable model performs as well as a complex one. The real gain comes from catching more defaults with a cost-based threshold, combined with human judgment for uncertain cases. With the fair model, the weighted cost of wrong decisions (5:1 cost matrix) on the test set is still about **one third lower** than with the default threshold of 0.5 (467 vs. 700), while the age gap for creditworthy applicants drops from 0.81 to 0.37.
+### Final model
+
+A logistic regression trained with **reweighing**, so that it does not learn group differences in default rates. **Gender and nationality are not model inputs.** Age stays in the model as a correction for other features that indirectly reveal age.
+
+With the fair model, the cost of wrong decisions on the test set is **33% lower** than with a standard model at the usual 50% cut-off (467 vs. 700), while **no creditworthy applicant aged 51+ is declined automatically** (0 of 21, vs. 8 of 21 with the standard model).
 
 ### The price of fairness
 
-Compared with model (a), the fair model (d):
-- has a **14% higher cost of wrong decisions** (467 vs. 409 on the test set), but still a **33% lower cost of wrong decisions** than the default threshold of 0.5 (700);
-- sends more applications to manual review (**60% vs. 42%**);
-- auto-approves more defaults (**17 vs. 14**);
-- has a larger gender gap among good customers (0.17 vs. 0.11 on the test set), which works against men.
+Compared with the same model without fairness correction, CreditParity costs 14% more (467 vs. 409) and sends more applications to manual review (60% vs. 42%). In return, the age gap for creditworthy applicants falls from 0.81 to 0.37, and no score depends directly on gender or nationality.
 
-In return:
-- **no creditworthy applicant aged 51+ is declined automatically** on the test set (0 of 21, vs. 8 of 21 with model (a); on the training data 1 of 83 vs. 41 of 83);
-- the age gap for creditworthy applicants (EOD) falls from 0.81 to 0.37 (test set);
-- no applicant's score depends directly on gender or foreign worker status.
-
-### Equal treatment vs. equal outcomes for gender
-
-We also tested model (c), which uses gender (the `Sex` column) as an input. It almost removes the gender gap (0.03 on the test set), but only because, with all other features equal, it rates women as riskier than men. Every model that scores men and women with the same features identically shows a gender gap of about 0.2 against men, because men in this dataset have less favorable values on other features. CreditParity chooses **equal treatment**: no direct gender-based treatment is a core principle.
+We also tested a model that uses gender as an input. It almost removes the gender gap, but only by rating women as riskier than men with all other features equal. CreditParity chooses **equal treatment** instead and accepts a remaining gender gap of about 0.2, which works against men because of differences in other features.
 
 ## Data
 
@@ -77,21 +69,17 @@ An initial analysis with IBM watsonx AutoAI selected an XGBoost pipeline by accu
 
 ## Limitations
 
-- The dataset is **synthetic**. Some relationships are implausible, e.g. a negative checking account balance (`CheckingStatus = less_0`) has the lowest default rate. Results may not transfer to real loan data.
-- The **5:1 cost ratio** is an assumption, not an estimate from real loss data.
-- The 80% precision target for automatic declines is a business assumption. Before deployment it should be validated with the bank's risk and compliance teams. In operation, the thresholds should be monitored regularly and adjusted to the available analyst capacity: a higher target reduces wrongful automatic declines but increases the manual review workload.
-- About 60% of applications go to manual review. The bank can adjust the precision target to balance analyst workload against wrongful automatic declines; thresholds should be monitored and adjusted to the available analyst capacity.
-- The fair model auto-approves more defaults than model (a) (17 vs. 14 on the test set), because its lower boundary is higher (0.15 vs. 0.11) and it separates defaults from good customers less sharply.
-- Cost figures assume that every application with a default probability ≥ 0.15 is declined. Analyst decisions in the yellow zone and human reviews requested in the red zone may change some decisions; the dataset cannot show how this affects cost.
-- The model does not use gender or foreign worker status as inputs. The remaining gender gap of about 0.2 among good customers works against men and results from differences in other features. It should be reviewed legally (direct vs. indirect discrimination) and monitored in operation.
-- Age is still used directly as a correction for its proxies. This also needs legal review.
-- **The age correction shifts predicted risk toward younger applicants.** On the test set, applicants aged 19–25 are rated about **4× riskier than their actual default rate** (average predicted default probability 21% vs. 5%), while applicants aged 51+ are rated **less risky** than their actual default rate (50% vs. 76%). The correction is strong: with all other fields unchanged, ten years younger multiplies the odds of default by 2.55, so age alone can move an application across zones.
-- **Affected young applicants are mostly routed to manual review, not declined.** 42% of good customers aged 19–25 are not auto-approved (17% without reweighing), but only **2.5% are declined automatically** (out-of-fold training predictions); the rest are decided by an analyst.
-- **Possible next step: partial reweighing.** Applying the reweighing only partly (a correction strength between no reweighing and full reweighing) could balance the remaining age gap against this shift toward younger applicants.
-- Reweighing uses age group, gender and foreign worker status to compute the training weights, which also belongs in the legal review.
-- Explanations are analyst-facing only. A customer-facing explanation for automatic declines (GDPR Art. 22 right to meaningful information) is a next step that requires legal review.
-- SHAP explains the model, not the causes of default.
-- Small groups: only 123 applicants have `ForeignWorker = no` (23 in the test set), so fairness metrics for this group are uncertain.
+1. **Synthetic data.** The dataset is synthetic and some relationships are implausible (e.g. a negative checking balance has the lowest default rate). Results may not transfer to real loan data.
+
+2. **Business assumptions.** The 5:1 cost ratio and the 80% precision target for automatic declines are assumptions, not estimates from real data. Both should be validated with the bank's risk and compliance teams before deployment.
+
+3. **Manual review workload.** About 60% of applications go to manual review. A higher precision target reduces wrongful automatic declines but increases this workload, so thresholds should be monitored and adjusted to the available analyst capacity. Cost figures do not include how analyst decisions change outcomes.
+
+4. **Remaining fairness trade-offs.** The model does not use gender or nationality, but a gender gap of about 0.2 among good customers remains, working against men. The age correction shifts predicted risk toward younger applicants: those aged 19–25 are rated riskier than their actual default rate. Most of them are routed to manual review rather than declined (2.5% declined automatically). Partial reweighing could balance these effects in a next step.
+
+5. **Legal review needed.** Age is used directly as a correction for hidden age bias, and gender and nationality are used to compute the training weights. Both, as well as the remaining gender gap, require legal review before real-world use.
+
+6. **Explanations for analysts only.** Explanations are designed for credit analysts. Customer-facing explanations for automatic declines (GDPR Art. 22) are a next step.
 
 ## Repository structure
 
@@ -112,45 +100,10 @@ AI_USAGE.md                 documentation of AI assistance
 
 `app.py` is a Streamlit app for bank staff without a technical background. It uses plain language; the technical details are documented in the notebooks and in this README.
 
-- **Home** – mission, a short overview of the sections and the logo (`assets/logo.svg`).
-- **Check a single application** – one form for all application fields (gender and nationality are not asked for). Shows the chance of default, the risk rating (A–E), the recommendation (approve automatically, manual review, decline recommended), the main reasons for the result (exact SHAP values, shown without numbers; age is labelled "Age (fairness correction)") and a summary for the credit analyst in the manual review zone.
-- **Check several applications** – upload a CSV file (an example file can be downloaded in the app) and download the results.
-- **Bank settings** – two sliders: the chance of default below which applications are approved automatically, and the share of automatic declines that must be truly bad loans. Workload, cost of wrong decisions, bad loans caught and a fairness check by group update live on the 1,000 test applications. A reset button restores the recommended settings (15% and 80%). The comparison with model (a) (price of fairness) is documented in this README and the notebooks, not in the app.
-- **How it works** – how recommendations are made, risk rating vs. recommendation, the fairness promise and the most important limitations in plain words.
+- **Home:** Mission, a short overview of the sections and the logo (`assets/logo.svg`).
+- **Check a single application:** One form for all application fields (gender and nationality are not asked for). Shows the chance of default, the risk rating (A–E), the recommendation (approve automatically, manual review, decline recommended), the main reasons for the result (exact SHAP values, shown without numbers; age is labelled "Age (fairness correction)") and a summary for the credit analyst in the manual review zone.
+- **Check several applications:** Upload a CSV file (an example file can be downloaded in the app) and download the results.
+- **Bank settings:** Two sliders: the chance of default below which applications are approved automatically, and the share of automatic declines that must be truly bad loans. Workload, cost of wrong decisions, bad loans caught and a fairness check by group update live on the 1,000 test applications. A reset button restores the recommended settings (15% and 80%). The comparison with model (a) (price of fairness) is documented in this README and the notebooks, not in the app.
+- **How it works:** How recommendations are made, risk rating vs. recommendation, the fairness promise and the most important limitations in plain words.
 
 Screenshots: [home](docs/screenshots/0_home.png) · [check a single application](docs/screenshots/1_check_a_single_application.png) · [check several applications](docs/screenshots/2_check_several_applications.png) · [bank settings](docs/screenshots/3_bank_settings.png) · [how it works](docs/screenshots/4_how_it_works.png)
-
-Run it locally (Python 3.13):
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-streamlit run app.py
-```
-
-The app opens at http://localhost:8501. It only needs the files in `model/` and `data/`; it never retrains a model.
-
-## Deployment on Streamlit Community Cloud
-
-The app is ready for [Streamlit Community Cloud](https://share.streamlit.io) (free for public GitHub repositories):
-
-1. Push the repository to GitHub (the `model/` and `data/` folders must be included).
-2. Sign in at https://share.streamlit.io with your GitHub account and click **Create app** → **Deploy a public app from GitHub**.
-3. Select this repository, branch `main` and main file path `app.py`.
-4. Under **Advanced settings**, choose **Python 3.13**. The saved model was created with scikit-learn 1.9.1, which `requirements.txt` pins; other versions may fail to load it.
-5. Optionally choose a custom subdomain (e.g. `creditparity`) and click **Deploy**. The first build takes a few minutes.
-6. Copy the app URL into the "Live app" line at the top of this README (this project: https://creditparity.streamlit.app).
-
-Streamlit Cloud installs only `requirements.txt` (the dashboard dependencies) and applies the theme in `.streamlit/config.toml`. Every push to `main` redeploys the app automatically.
-
-## Running the notebooks locally
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-notebooks.txt
-jupyter notebook notebooks/
-```
-
-`requirements-notebooks.txt` adds the analysis packages (matplotlib, seaborn, shap, fairlearn, xgboost, jupyter) to the dashboard requirements. In Google Colab, upload the CSV and set `DATA_PATH = "german_credit_data_biased_training.csv"` in the loading cell; XGBoost, shap and the other packages are available there or can be installed with `pip`. On macOS, XGBoost needs the OpenMP runtime (`brew install libomp`).
