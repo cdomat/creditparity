@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="CreditParity logo">
+  <rect x="4" y="4" width="112" height="112" rx="26" fill="#0d366b"/>
+  <rect x="32" y="38" width="56" height="13" rx="6.5" fill="#ffffff"/>
+  <rect x="32" y="61" width="56" height="13" rx="6.5" fill="#ffffff"/>
+  <circle cx="93" cy="93" r="14" fill="#0ca30c" stroke="#0d366b" stroke-width="4"/>
+  <path d="M86.5 93.5 l4.5 4.5 l8.5 -9.5" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

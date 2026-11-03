@@ -8,9 +8,8 @@ CreditParity is a credit risk scoring prototype for a bank's retail customers th
 
 A credit analyst enters a single loan application (or uploads several as a CSV) and receives a default probability, a rating class, a decision zone and an explanation of the main drivers.
 
-![Single application](docs/screenshots/1_single_application.png)
+![CreditParity home page](docs/screenshots/0_home.png)
 
-*Final team project, BUS/FIN 241A Machine Learning, Brandeis University.*
 
 ## Business case
 
@@ -72,7 +71,7 @@ We also tested model (c), which uses sex as an input. It almost removes the sex 
 | 6 Fairness | `notebooks/credit_risk_step_6_fairness.ipynb` | Model (a) declines 95–96% of creditworthy applicants aged 51+ vs. 14–17% of those aged 19–25 (Equal Opportunity Difference 0.80 out-of-fold). **Dropping sensitive features does not help** (EOD 0.82), because age can be reconstructed from other features (ROC AUC 0.90). **Reweighing with age as an input** (final model (d)) cuts the age gap to 0.29. Good customers aged 51+ declined automatically: 41 of 83 with (a), 1 of 83 with (d). For sex, equal treatment and equal outcomes conflict on this data (models (c) and (e) as evidence); CreditParity chooses equal treatment. |
 | 7 Explainability | `notebooks/credit_risk_step_7_explainability.ipynb` | Exact SHAP values for the logistic regression, aggregated to the input features. In the fair model, **age is the strongest driver, with a negative coefficient**: it acts as a counterweight to the age proxies (e.g. long employment), so it is shown to analysts as "Age (fairness correction)". Sex and foreign worker status never appear. Some explanations are implausible because the data is synthetic (e.g. a negative checking balance lowers the risk). |
 | 8 Saved model | `notebooks/credit_risk_step_8_save_model.ipynb` | `model/creditparity_bundle.joblib` holds the final model (d) and the comparison model (a) as complete sklearn pipelines, the decision policy (0.15 / 0.71, 80% precision target, 5:1 costs) and the data for exact SHAP explanations; `model/policy.json` and `model/evaluation_data.csv` support the dashboard. Reloading the files in a separate process reproduces all 26 checked test-set values. |
-| 9 Dashboard | `app.py` | Streamlit dashboard with four sections (single application, batch upload, bank view, model info). Loads the saved files from Step 8; its bank view reproduces the Step 5/6 test results (e.g. cost 467, 60% manual review, 0 of 21 good customers aged 51+ declined automatically). |
+| 9 Dashboard | `app.py` | Plain-language Streamlit app for bank staff (home page, check one application, check several applications, bank settings, how it works). Loads the saved files from Step 8; its bank settings reproduce the Step 5/6 test results (e.g. 33% lower losses than the standard rule, 60% manual review, 0 of 21 good customers aged 51+ declined automatically). |
 
 An initial analysis with IBM watsonx AutoAI selected an XGBoost pipeline by accuracy (79.6% on a 499-case holdout, but recall of only 53%). Our fair comparison on identical folds shows that this extra complexity does not pay off on this dataset.
 
@@ -100,7 +99,8 @@ An initial analysis with IBM watsonx AutoAI selected an XGBoost pipeline by accu
 data/                       dataset
 notebooks/                  one notebook per project phase (Google Colab compatible)
 model/                      final and comparison pipelines, decision policy, evaluation data (Step 8)
-app.py                      Streamlit dashboard
+app.py                      Streamlit app
+assets/logo.svg             CreditParity logo
 .streamlit/config.toml      dashboard theme
 requirements.txt            dashboard dependencies (used by Streamlit Cloud)
 requirements-notebooks.txt  additional packages for the notebooks
@@ -110,14 +110,15 @@ AI_USAGE.md                 documentation of AI assistance
 
 ## The dashboard
 
-`app.py` is a Streamlit dashboard for credit analysts with four sections:
+`app.py` is a Streamlit app for bank staff without a technical background. It uses plain language; the technical details are documented in the notebooks and in this README.
 
-1. **Single application** – form for all application fields (with examples from the test set), default probability, rating and zone, the top drivers of the decision (exact SHAP values; age is shown as "Age (fairness correction)") and a credit memo for cases in manual review.
-2. **Batch upload** – score a CSV of applications (a sample file can be downloaded in the app) and download the results.
-3. **Bank view** – sliders for the lower boundary and the target precision for automatic declines; zone shares, manual review workload, cost, recall, precision and fairness metrics (demographic parity and equal opportunity difference, zone shares by group) update live on the 1,000 test applications. A toggle compares the final model with model (a).
-4. **Model info** – rating vs. zone, model comparison incl. the AutoAI benchmark, the price of fairness and the limitations.
+- **Home** – mission, a short overview of the sections and the logo (`assets/logo.svg`).
+- **Check an application** – one form for all application fields (sex and nationality are not asked for). Shows the chance of default, the risk rating (A–E), the recommendation (approve automatically, manual review, decline recommended), the main reasons for the result (exact SHAP values, shown without numbers; age is labelled "Age (fairness correction)") and a summary for the credit analyst in the manual review zone.
+- **Check several applications** – upload a CSV file (an example file can be downloaded in the app) and download the results.
+- **Bank settings** – two sliders: the chance of default below which applications are approved automatically, and the share of automatic declines that must be truly bad loans. Workload, losses, bad loans caught and a fairness check by group update live on the 1,000 test applications; a toggle compares with the standard model without fairness correction.
+- **How it works** – how recommendations are made, risk rating vs. recommendation, the fairness promise and the most important limitations in plain words.
 
-Screenshots: [single application](docs/screenshots/1_single_application.png) · [batch upload](docs/screenshots/2_batch_upload.png) · [bank view](docs/screenshots/3_bank_view.png) · [bank view with comparison](docs/screenshots/3b_bank_view_compare.png) · [model info](docs/screenshots/4_model_info.png)
+Screenshots: [home](docs/screenshots/0_home.png) · [check an application](docs/screenshots/1_check_an_application.png) · [check several applications](docs/screenshots/2_check_several_applications.png) · [bank settings](docs/screenshots/3_bank_settings.png) · [bank settings with comparison](docs/screenshots/3b_bank_settings_compare.png) · [how it works](docs/screenshots/4_how_it_works.png)
 
 Run it locally (Python 3.13):
 

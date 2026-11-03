@@ -1,15 +1,17 @@
 """CreditParity – Profitable, Fair Lending Decisions.
 
-Streamlit dashboard for credit analysts. Four sections:
-  1. Single application  – default probability, rating, zone and SHAP drivers
-  2. Batch upload        – score a CSV of applications and download the results
-  3. Bank view           – policy sliders with live workload, cost and fairness metrics
-  4. Model info          – model choice, price of fairness and limitations
+Streamlit app for bank staff. Sections:
+  Home                        – mission and overview
+  Check an application        – chance of default, risk rating, recommendation and main reasons
+  Check several applications  – score a CSV file and download the results
+  Bank settings               – decision rules and their effect on workload, losses and fairness
+  How it works                – plain-language explanation and important notes
 
-All models and data are loaded from model/ (created in notebook Step 8).
+Models and data are loaded from model/ (created in notebook Step 8). Technical details are
+documented in the notebooks and the README of the repository.
 """
 from pathlib import Path
-import re
+import base64
 
 import altair as alt
 import joblib
@@ -20,8 +22,10 @@ import streamlit as st
 ROOT = Path(__file__).parent
 MODEL_DIR = ROOT / "model"
 DATA_PATH = ROOT / "data" / "german_credit_data_biased_training.csv"
+LOGO_PATH = ROOT / "assets" / "logo.svg"
+REPO_URL = "https://github.com/cdomat/creditparity"
 
-st.set_page_config(page_title="CreditParity", page_icon="🏦", layout="wide",
+st.set_page_config(page_title="CreditParity", page_icon=str(LOGO_PATH), layout="wide",
                    initial_sidebar_state="expanded")
 
 # --------------------------------------------------------------------------------------
@@ -30,39 +34,104 @@ st.set_page_config(page_title="CreditParity", page_icon="🏦", layout="wide",
 NAVY = "#0d366b"
 TEXT_SECONDARY = "#52514e"
 SURFACE = "#fcfcfb"
-MODEL_COLORS = {"d": "#2a78d6", "a": "#eb6834"}          # categorical slots 1 and 2
-RAISES_RISK, LOWERS_RISK = "#e34948", "#2a78d6"           # diverging pair (red / blue)
-ZONES = {                                                 # status palette + icon + label
-    "Green": {"label": "Auto-approve", "color": "#0ca30c", "icon": "✅",
-              "text": "Approved automatically."},
-    "Yellow": {"label": "Manual review", "color": "#fab219", "icon": "🔎",
-               "text": "A credit analyst decides, supported by the explanation below."},
-    "Red": {"label": "Decline recommended", "color": "#d03b3b", "icon": "⛔",
-            "text": "The system declines with an explanation; the customer can request a human review."},
+RAISES_RISK, LOWERS_RISK = "#e34948", "#2a78d6"            # diverging pair (red / blue)
+ZONES = {                                                  # status palette + icon + label
+    "Green": {"label": "Approve automatically", "short": "Approved automatically", "color": "#0ca30c",
+              "icon": "✅", "advice": "Low risk. The application can be approved automatically."},
+    "Yellow": {"label": "Manual review", "short": "Reviewed by an analyst", "color": "#fab219",
+               "icon": "🔎", "advice": "Uncertain case. A credit analyst should review the application "
+                                      "and make the decision."},
+    "Red": {"label": "Decline recommended", "short": "Declined automatically", "color": "#d03b3b",
+            "icon": "⛔", "advice": "High risk. The application is declined with an explanation. "
+                                   "The applicant can ask for a personal review."},
 }
 ZONE_ORDER = ["Green", "Yellow", "Red"]
 
-# Fixed master scale: the rating describes the applicant's risk and never moves with the policy.
+# Fixed risk scale: the rating describes the applicant's risk and never moves with the bank settings.
 RATING_SCALE = [("A", 0.00, 0.05), ("B", 0.05, 0.15), ("C", 0.15, 0.35),
                 ("D", 0.35, 0.70), ("E", 0.70, 1.01)]
+RATING_TEXT = {"A": "very low risk", "B": "low risk", "C": "moderate risk",
+               "D": "elevated risk", "E": "high risk"}
 
-MODEL_NAMES = {"d": "(d) Fair model – final", "a": "(a) All features – comparison"}
-NOT_SCORED = ["Sex", "ForeignWorker"]                      # not inputs of model (d)
+# Plain-language names for the application fields and their values
+FIELD_LABELS = {
+    "LoanAmount": "Loan amount",
+    "LoanDuration": "Loan duration (months)",
+    "LoanPurpose": "Purpose of the loan",
+    "InstallmentPercent": "Monthly installment burden (1 = low, 6 = high)",
+    "InstallmentPlans": "Other installment plans",
+    "OthersOnLoan": "Co-applicant or guarantor",
+    "CheckingStatus": "Checking account balance",
+    "ExistingSavings": "Savings",
+    "CreditHistory": "Credit history",
+    "ExistingCreditsCount": "Number of existing loans",
+    "OwnsProperty": "Most valuable property",
+    "Age": "Age",
+    "EmploymentDuration": "Time with current employer",
+    "Job": "Type of job",
+    "Housing": "Housing",
+    "CurrentResidenceDuration": "Years at current address (1–6)",
+    "Dependents": "Number of dependents",
+    "Telephone": "Telephone registered",
+}
+VALUE_LABELS = {
+    "CheckingStatus": {"less_0": "Overdrawn (below 0)", "0_to_200": "0 to 200",
+                       "greater_200": "More than 200", "no_checking": "No checking account"},
+    "CreditHistory": {"all_credits_paid_back": "All previous loans repaid",
+                      "credits_paid_to_date": "Current loans paid on time",
+                      "prior_payments_delayed": "Payments delayed in the past",
+                      "outstanding_credit": "Other loans outstanding", "no_credits": "No previous loans"},
+    "LoanPurpose": {"car_new": "New car", "car_used": "Used car", "furniture": "Furniture",
+                    "appliances": "Household appliances", "radio_tv": "Radio / TV", "repairs": "Repairs",
+                    "education": "Education", "retraining": "Retraining", "business": "Business",
+                    "vacation": "Vacation", "other": "Other"},
+    "ExistingSavings": {"less_100": "Less than 100", "100_to_500": "100 to 500", "500_to_1000": "500 to 1,000",
+                        "greater_1000": "More than 1,000", "unknown": "Unknown / no savings"},
+    "EmploymentDuration": {"unemployed": "Unemployed", "less_1": "Less than 1 year", "1_to_4": "1 to 4 years",
+                           "4_to_7": "4 to 7 years", "greater_7": "More than 7 years"},
+    "OthersOnLoan": {"none": "None", "co-applicant": "Co-applicant", "guarantor": "Guarantor"},
+    "OwnsProperty": {"real_estate": "Real estate", "savings_insurance": "Savings or life insurance",
+                     "car_other": "Car or other", "unknown": "None / unknown"},
+    "InstallmentPlans": {"none": "None", "bank": "At a bank", "stores": "At stores"},
+    "Housing": {"own": "Owns home", "rent": "Rents", "free": "Lives rent-free"},
+    "Job": {"unemployed": "Unemployed", "unskilled": "Unskilled", "skilled": "Skilled employee",
+            "management_self-employed": "Management / self-employed"},
+    "Telephone": {"yes": "Yes", "none": "No"},
+}
+FORM_GROUPS = {
+    "The loan": ["LoanAmount", "LoanDuration", "LoanPurpose", "InstallmentPercent",
+                 "InstallmentPlans", "OthersOnLoan"],
+    "Finances and credit history": ["CheckingStatus", "ExistingSavings", "CreditHistory",
+                                    "ExistingCreditsCount", "OwnsProperty"],
+    "Personal situation": ["Age", "EmploymentDuration", "Job", "Housing",
+                           "CurrentResidenceDuration", "Dependents", "Telephone"],
+}
+NOT_USED = ["Sex", "ForeignWorker"]                         # not used by the final model
 AGE_LABEL = "Age (fairness correction)"
 
 st.markdown(f"""
 <style>
-  .block-container {{padding-top: 3.2rem; max-width: 1250px;}}
-  h1, h2, h3 {{color: {NAVY};}}
-  .cp-header {{display:flex; align-items:baseline; gap:.8rem; margin-bottom:.2rem;}}
-  .cp-title {{font-size:2rem; font-weight:700; color:{NAVY}; letter-spacing:-.01em;}}
-  .cp-tagline {{font-size:1.05rem; color:{TEXT_SECONDARY};}}
-  .cp-badge {{display:inline-flex; align-items:center; gap:.4rem; padding:.25rem .7rem;
-             border-radius:999px; font-weight:600; font-size:.95rem; border:1px solid #d9dde3;
+  .block-container {{padding-top: 3.2rem; max-width: 1200px;}}
+  h1, h2, h3, h4 {{color: {NAVY};}}
+  .cp-header {{display:flex; align-items:center; gap:.7rem; margin-bottom:.4rem;}}
+  .cp-title {{font-size:1.9rem; font-weight:700; color:{NAVY}; letter-spacing:-.01em;}}
+  .cp-tagline {{font-size:1.02rem; color:{TEXT_SECONDARY};}}
+  .cp-badge {{display:inline-flex; align-items:center; gap:.45rem; padding:.3rem .8rem;
+             border-radius:999px; font-weight:600; font-size:1rem; border:1px solid #d9dde3;
              background:#ffffff; color:#0b0b0b;}}
-  .cp-dot {{width:.7rem; height:.7rem; border-radius:50%; display:inline-block;}}
-  .cp-pd {{font-size:3rem; font-weight:700; color:{NAVY}; line-height:1.1;}}
-  .cp-muted {{color:{TEXT_SECONDARY}; font-size:.9rem;}}
+  .cp-dot {{width:.75rem; height:.75rem; border-radius:50%; display:inline-block;}}
+  .cp-pd {{font-size:3.2rem; font-weight:700; color:{NAVY}; line-height:1.1;}}
+  .cp-muted {{color:{TEXT_SECONDARY}; font-size:.95rem;}}
+  .cp-hero {{text-align:center; padding: 2.5rem 1rem 1.5rem 1rem;}}
+  .cp-hero h1 {{font-size:3rem; margin:.6rem 0 .2rem 0; color:{NAVY};}}
+  .cp-hero .cp-tagline {{font-size:1.25rem;}}
+  .cp-mission {{max-width:720px; margin: 1.2rem auto 0 auto; font-size:1.12rem; line-height:1.65;
+               color:#0b0b0b;}}
+  .cp-card {{background:#ffffff; border:1px solid #e3e6ea; border-radius:12px; padding:1.1rem 1.2rem;
+            height:100%;}}
+  .cp-card h4 {{margin:.2rem 0 .4rem 0; font-size:1.05rem;}}
+  .cp-card p {{margin:0; color:{TEXT_SECONDARY}; font-size:.95rem; line-height:1.5;}}
+  .cp-author {{text-align:center; color:{TEXT_SECONDARY}; margin-top:2.2rem; font-size:1rem;}}
   div[data-testid="stMetricValue"] {{color:{NAVY};}}
 </style>
 """, unsafe_allow_html=True)
@@ -86,6 +155,11 @@ def load_dataset():
     return pd.read_csv(DATA_PATH)
 
 
+@st.cache_data
+def logo_data_uri():
+    return "data:image/svg+xml;base64," + base64.b64encode(LOGO_PATH.read_bytes()).decode()
+
+
 bundle = load_bundle()
 POLICY = bundle["policy"]
 META = bundle["metadata"]
@@ -98,23 +172,16 @@ dataset = load_dataset()
 
 
 # --------------------------------------------------------------------------------------
-# Helpers: labels, rating, zones, policy
+# Helpers: labels, rating, zones, settings
 # --------------------------------------------------------------------------------------
-def feature_label(feature):
-    if feature == "Age":
-        return AGE_LABEL
-    return re.sub(r"(?<!^)(?=[A-Z])", " ", feature).capitalize()
+def field_label(feature):
+    return AGE_LABEL if feature == "Age" else FIELD_LABELS.get(feature, feature)
 
 
-def value_label(value):
-    """Readable label for raw category codes such as 'less_0' or '0_to_200'."""
-    if not isinstance(value, str):
-        return str(value)
-    v = value.replace("_to_", " – ")
-    v = re.sub(r"^less_", "< ", v)
-    v = re.sub(r"^greater_", "> ", v)
-    v = v.replace("_", " ")
-    return v[:1].upper() + v[1:]
+def value_label(feature, value):
+    if feature in VALUE_LABELS:
+        return VALUE_LABELS[feature].get(value, str(value))
+    return f"{value:,}" if isinstance(value, (int, np.integer)) else str(value)
 
 
 def rating_of(p):
@@ -131,8 +198,8 @@ THRESHOLDS = np.round(np.arange(0.01, 1.00, 0.01), 2)
 
 @st.cache_data
 def upper_for_precision(model_key, lower, target):
-    """Precision rule (Step 5): lowest threshold >= lower at which at least `target`
-    of the red-zone applications are defaults, on the out-of-fold training predictions."""
+    """Lowest threshold >= lower at which at least `target` of the automatic declines are
+    actual defaults (on cross-validated predictions of the training applications)."""
     oof = evaluation[evaluation["split"] == "train_oof"]
     p = oof["pd_final" if model_key == "d" else "pd_comparison"].to_numpy()
     y = oof["y"].to_numpy()
@@ -143,32 +210,43 @@ def upper_for_precision(model_key, lower, target):
     return 1.0
 
 
+@st.cache_data
+def form_defaults():
+    """Start values for the form: the most common value (or the median) of each field."""
+    out = {}
+    for f in INPUT_FEATURES:
+        v = dataset[f].mode().iloc[0] if f in CATEGORICAL else int(dataset[f].median())
+        out[f] = v.item() if hasattr(v, "item") else v
+    return out
+
+
 def init_state():
     # Keep form values when the user switches sections (Streamlit drops the state of
-    # widgets that are not rendered in a run).
+    # widgets that are not shown in a run).
     for k in list(st.session_state.keys()):
-        if k.startswith("f_") or k == "preset":
+        if k.startswith("f_"):
             st.session_state[k] = st.session_state[k]
-    for key in MODELS:
-        st.session_state.setdefault(f"lower_{key}", POLICY["models"][key]["lower_boundary"])
+    st.session_state.setdefault("lower_d", POLICY["models"]["d"]["lower_boundary"])
     st.session_state.setdefault("target", POLICY["target_precision"])
     st.session_state.setdefault("compare", False)
+    for f, v in form_defaults().items():
+        if f not in NOT_USED:
+            st.session_state.setdefault(f"f_{f}", v)
 
 
 def persist(widget_key, state_key):
     st.session_state[state_key] = st.session_state[widget_key]
 
 
-def reset_policy():
-    for key in MODELS:
-        st.session_state[f"lower_{key}"] = POLICY["models"][key]["lower_boundary"]
-        st.session_state.pop(f"w_lower_{key}", None)
+def reset_settings():
+    st.session_state["lower_d"] = POLICY["models"]["d"]["lower_boundary"]
     st.session_state["target"] = POLICY["target_precision"]
+    st.session_state.pop("w_lower_d", None)
     st.session_state.pop("w_target", None)
 
 
-def current_policy(model_key):
-    lower = (st.session_state[f"lower_{model_key}"] if model_key == "d"
+def current_policy(model_key="d"):
+    lower = (st.session_state["lower_d"] if model_key == "d"
              else POLICY["models"]["a"]["lower_boundary"])
     target = st.session_state["target"]
     return lower, upper_for_precision(model_key, lower, target), target
@@ -177,98 +255,95 @@ def current_policy(model_key):
 # --------------------------------------------------------------------------------------
 # Scoring and explanations
 # --------------------------------------------------------------------------------------
+def complete(data):
+    """Add the fields the final model does not use if they are missing (the scoring pipeline
+    expects all application fields, but ignores these two)."""
+    data = data.copy()
+    defaults = form_defaults()
+    for f in NOT_USED:
+        if f not in data.columns:
+            data[f] = defaults[f]
+    return data[INPUT_FEATURES]
+
+
 def predict(data, model_key="d"):
-    return MODELS[model_key].predict_proba(data[INPUT_FEATURES])[:, 1]
+    return MODELS[model_key].predict_proba(complete(data))[:, 1]
 
 
 def explain(data, model_key="d"):
-    """Exact linear SHAP values (log-odds) per input feature: coefficient x deviation
-    from the average training applicant, summed over the one-hot columns of a feature."""
+    """Exact contribution of each application field to the risk (SHAP values of the
+    logistic regression, in log-odds), relative to the average applicant."""
     model, info = MODELS[model_key], EXPLAIN[model_key]
-    Z = model.named_steps["prep"].transform(data[INPUT_FEATURES])
+    Z = model.named_steps["prep"].transform(complete(data))
     Z = Z.toarray() if hasattr(Z, "toarray") else np.asarray(Z)
     coef = model.named_steps["model"].coef_[0]
     phi = pd.DataFrame(coef * (Z - info["background_mean"]), columns=info["columns"], index=data.index)
-    base = float(model.named_steps["model"].intercept_[0] + coef @ info["background_mean"])
-    return phi.T.groupby(info["feature_of_column"], sort=False).sum().T, base
+    return phi.T.groupby(info["feature_of_column"], sort=False).sum().T
 
 
-def score_table(data):
-    p = predict(data, "d")
-    lower, upper, _ = current_policy("d")
-    contrib, _ = explain(data, "d")
-    main_driver = contrib.idxmax(axis=1).map(feature_label)
-    out = data.copy()
-    out.insert(0, "Default probability (%)", (100 * p).round(1))
-    out.insert(1, "Rating", [rating_of(v) for v in p])
-    out.insert(2, "Zone", [f"{ZONES[z]['icon']} {z} – {ZONES[z]['label']}" for z in zone_of(p, lower, upper)])
-    out.insert(3, "Main risk driver", main_driver.where(contrib.max(axis=1) > 0, "–"))
-    return out
+def strength(v):
+    a = abs(v)
+    return "strong" if a >= 0.5 else "moderate" if a >= 0.2 else "small"
 
 
 # --------------------------------------------------------------------------------------
 # UI building blocks
 # --------------------------------------------------------------------------------------
 def header():
-    st.markdown('<div class="cp-header"><span class="cp-title">🏦 CreditParity</span>'
+    st.markdown(f'<div class="cp-header"><img src="{logo_data_uri()}" width="40" alt="">'
+                '<span class="cp-title">CreditParity</span>'
                 '<span class="cp-tagline">Profitable, Fair Lending Decisions</span></div>',
                 unsafe_allow_html=True)
 
 
 def zone_badge(zone, rating=None):
     z = ZONES[zone]
-    rating_part = f"Rating {rating} · " if rating else ""
+    rating_part = f"Risk rating {rating} · " if rating else ""
     return (f'<span class="cp-badge"><span class="cp-dot" style="background:{z["color"]}"></span>'
-            f'{z["icon"]} {rating_part}{zone} zone – {z["label"]}</span>')
+            f'{z["icon"]} {rating_part}{z["label"]}</span>')
 
 
-def drivers_chart(contrib, data_row, top=8):
-    order = contrib.abs().sort_values(ascending=False).index
-    shown = contrib[order[:top]]
-    rows = [{"Driver": f"{feature_label(f)} = {value_label(data_row[f])}",
-             "Contribution": float(v),
-             "Effect": "Raises risk" if v > 0 else "Lowers risk"} for f, v in shown.items()]
-    rest = float(contrib[order[top:]].sum())
-    rows.append({"Driver": f"{len(order) - top} other features", "Contribution": rest,
-                 "Effect": "Raises risk" if rest > 0 else "Lowers risk"})
-    df = pd.DataFrame(rows)
-    df["Contribution (log-odds)"] = df["Contribution"].round(2)
-    bars = alt.Chart(df).mark_bar(cornerRadiusEnd=4, height=18).encode(
-        x=alt.X("Contribution:Q", title="Contribution to risk (log-odds)",
-                axis=alt.Axis(gridColor="#ececea", labelColor=TEXT_SECONDARY, titleColor=TEXT_SECONDARY)),
-        y=alt.Y("Driver:N", sort=None, title=None, axis=alt.Axis(labelLimit=320, labelColor="#0b0b0b")),
-        color=alt.Color("Effect:N", scale=alt.Scale(domain=["Raises risk", "Lowers risk"],
-                                                    range=[RAISES_RISK, LOWERS_RISK]),
-                        legend=alt.Legend(orient="top", title=None)),
-        tooltip=["Driver", "Effect", "Contribution (log-odds)"],
+def reasons_chart(contrib, row, top=6):
+    order = contrib.abs().sort_values(ascending=False).index[:top]
+    df = pd.DataFrame([{"Factor": f"{'↑' if contrib[f] > 0 else '↓'} {field_label(f)}: {value_label(f, row[f])}",
+                        "Influence": float(contrib[f]),
+                        "Effect": "Increases the risk" if contrib[f] > 0 else "Lowers the risk",
+                        "Strength": strength(contrib[f])} for f in order])
+    bars = alt.Chart(df).mark_bar(cornerRadiusEnd=4, height=20).encode(
+        x=alt.X("Influence:Q", title="Influence on the risk", axis=alt.Axis(labels=False, ticks=False,
+                gridColor="#ececea", titleColor=TEXT_SECONDARY)),
+        y=alt.Y("Factor:N", sort=None, title=None, axis=alt.Axis(labelLimit=340, labelColor="#0b0b0b")),
+        color=alt.Color("Effect:N", scale=alt.Scale(domain=["Increases the risk", "Lowers the risk"],
+                                                    range=[RAISES_RISK, LOWERS_RISK]), legend=None),
+        tooltip=["Factor", "Effect", "Strength"],
     )
     zero = alt.Chart(pd.DataFrame({"x": [0]})).mark_rule(color="#8c8c8c").encode(x="x:Q")
-    return (bars + zero).properties(height=34 * len(df)).configure_view(stroke=None)
+    return (bars + zero).properties(height=38 * len(df)).configure_view(stroke=None)
 
 
-def credit_memo(row, p, rating, zone, contrib, lower, upper):
+def analyst_summary(row, p, rating, zone, contrib):
     up = contrib[contrib > 0].sort_values(ascending=False).head(3)
     down = contrib[contrib < 0].sort_values().head(3)
-    line = lambda f, v: f"  • {feature_label(f)}: {value_label(row[f])} ({v:+.2f})"
+    line = lambda f, v: f"  • {field_label(f)}: {value_label(f, row[f])} ({strength(v)})"
     return "\n".join([
-        "CREDIT MEMO – CreditParity (analyst use only)",
+        "APPLICATION SUMMARY – CreditParity",
         "",
-        f"Loan: {row['LoanAmount']:,} for {row['LoanDuration']} months ({value_label(row['LoanPurpose'])})",
-        f"Default probability: {p:.1%} · Rating {rating} · {zone} zone",
-        f"Policy: green below {lower:.0%}, red from {upper:.0%}",
+        f"Loan: {row['LoanAmount']:,} for {row['LoanDuration']} months",
+        f"Purpose: {value_label('LoanPurpose', row['LoanPurpose'])}",
+        f"Chance of default: {p:.0%} · Risk rating {rating}",
+        f"Recommendation: {ZONES[zone]['label']}",
         "",
-        "Factors raising the risk:",
-        *([line(f, v) for f, v in up.items()] or ["  • none"]),
+        "Increases the risk:",
+        *([line(f, v) for f, v in up.items()] or ["  • nothing significant"]),
         "",
-        "Factors lowering the risk:",
-        *([line(f, v) for f, v in down.items()] or ["  • none"]),
+        "Lowers the risk:",
+        *([line(f, v) for f, v in down.items()] or ["  • nothing significant"]),
         "",
-        "Analyst checklist:",
-        "  • Verify income, employment and accounts",
-        "  • Are the main risk factors temporary?",
-        "  • Age is a fairness correction only,",
-        "    never a reason on its own",
-        "  • Sex and foreign worker status: not used",
+        "Please check:",
+        "  • income, employment and account details",
+        "  • whether the main risk factors are temporary",
+        "  • age is only a fairness correction, never",
+        "    a reason on its own",
         "",
         "Decision: [ ] approve  [ ] with conditions",
         "          [ ] decline",
@@ -277,173 +352,169 @@ def credit_memo(row, p, rating, zone, contrib, lower, upper):
 
 
 # --------------------------------------------------------------------------------------
-# Section 1: Single application
+# Home
 # --------------------------------------------------------------------------------------
-PRESETS = {
-    "Typical green case": 1601,
-    "Typical yellow case": 1759,
-    "Typical red case": 2382,
-    "Older good customer (age 56)": 4322,
-}
-GROUPS = {
-    "Loan": ["LoanAmount", "LoanDuration", "LoanPurpose", "InstallmentPercent",
-             "InstallmentPlans", "OthersOnLoan"],
-    "Finances and credit history": ["CheckingStatus", "ExistingSavings", "CreditHistory",
-                                    "ExistingCreditsCount", "OwnsProperty"],
-    "Personal and employment": ["Age", "EmploymentDuration", "Job", "Housing",
-                                "CurrentResidenceDuration", "Dependents", "Telephone"],
-}
+def section_home():
+    st.markdown(f"""
+<div class="cp-hero">
+  <img src="{logo_data_uri()}" width="96" alt="CreditParity logo">
+  <h1>CreditParity</h1>
+  <div class="cp-tagline">Profitable, Fair Lending Decisions</div>
+  <p class="cp-mission">Our mission is to help banks lend responsibly and fairly. CreditParity estimates
+  how likely an applicant is to repay, explains the result in plain words and leaves uncertain cases to
+  people, so that good customers are not turned away because of their age, sex or origin.</p>
+</div>
+""", unsafe_allow_html=True)
+
+    st.markdown("#### What you can do")
+    cards = [
+        ("📝 Check an application", "Enter the details of one loan application and get the chance of default, "
+                                    "a risk rating, a recommendation and the main reasons."),
+        ("📂 Check several applications", "Upload a file with many applications and download the results "
+                                          "for all of them at once."),
+        ("⚙️ Bank settings", "Decide when applications are approved or declined automatically and see the effect "
+                            "on workload, losses and fairness."),
+        ("💡 How it works", "Learn how CreditParity reaches its recommendations and what to keep in mind."),
+    ]
+    cols = st.columns(4)
+    for col, (title, text) in zip(cols, cards):
+        col.markdown(f'<div class="cp-card"><h4>{title}</h4><p>{text}</p></div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="cp-author">Created by <b>Carina Domat</b></div>', unsafe_allow_html=True)
 
 
-def load_preset():
-    name = st.session_state["preset"]
-    if name in PRESETS:
-        row = dataset.loc[PRESETS[name]]
-        for f in INPUT_FEATURES:
-            st.session_state[f"f_{f}"] = row[f].item() if hasattr(row[f], "item") else row[f]
-
-
-def feature_input(f):
+# --------------------------------------------------------------------------------------
+# Check an application
+# --------------------------------------------------------------------------------------
+def field_input(f):
     key = f"f_{f}"
+    label = FIELD_LABELS[f]
     if f in CATEGORICAL:
-        options = META["category_values"][f]
-        st.selectbox(feature_label(f), options, key=key, format_func=value_label)
+        st.selectbox(label, list(VALUE_LABELS[f]), key=key, format_func=lambda v, f=f: VALUE_LABELS[f][v])
+    elif f == "LoanAmount":
+        lo, hi = META["numeric_ranges"][f]
+        st.number_input(label, min_value=lo, max_value=hi, step=100, key=key)
     else:
         lo, hi = META["numeric_ranges"][f]
-        if f == "LoanAmount":
-            st.number_input("Loan amount", min_value=lo, max_value=hi, step=100, key=key)
-        else:
-            st.slider("Age" if f == "Age" else feature_label(f), lo, hi, key=key)
+        st.slider(label, lo, hi, key=key)
 
 
-def section_single():
-    st.subheader("Single application")
-    st.markdown('<span class="cp-muted">Enter an application or load an example. '
-                'The result updates immediately.</span>', unsafe_allow_html=True)
-    if "f_Age" not in st.session_state:
-        st.session_state["preset"] = "Typical yellow case"
-        load_preset()
+def section_application():
+    st.subheader("Check an application")
+    st.markdown('<span class="cp-muted">Enter the details of the loan application. '
+                'The result on the right updates immediately.</span>', unsafe_allow_html=True)
 
-    left, right = st.columns([1, 1.25], gap="large")
+    left, right = st.columns([1, 1.15], gap="large")
     with left:
-        st.selectbox("Load an example from the test set", list(PRESETS) + ["Custom"],
-                     key="preset", on_change=load_preset)
-        for title, feats in GROUPS.items():
-            with st.expander(title, expanded=True):
+        for title, feats in FORM_GROUPS.items():
+            with st.container(border=True):
+                st.markdown(f"**{title}**")
                 cols = st.columns(2)
                 for i, f in enumerate(feats):
                     with cols[i % 2]:
-                        feature_input(f)
-        with st.expander("Not used for scoring", expanded=False):
-            st.caption("Recorded with the application, but not an input of the final model: "
-                       "no applicant's score depends directly on sex or foreign worker status.")
-            cols = st.columns(2)
-            for i, f in enumerate(NOT_SCORED):
-                with cols[i]:
-                    feature_input(f)
+                        field_input(f)
+        st.caption("Sex and nationality are not asked for: CreditParity does not use them.")
 
-    row = pd.DataFrame([{f: st.session_state[f"f_{f}"] for f in INPUT_FEATURES}])
-    p = float(predict(row, "d")[0])
-    lower, upper, target = current_policy("d")
+    row = pd.DataFrame([{f: st.session_state[f"f_{f}"] for f in INPUT_FEATURES if f not in NOT_USED}])
+    p = float(predict(row)[0])
+    lower, upper, _ = current_policy()
     zone = zone_of(p, lower, upper).item()
     rating = rating_of(p)
-    contrib, _ = explain(row, "d")
-    contrib = contrib.iloc[0]
+    contrib = explain(row).iloc[0]
 
     with right:
         with st.container(border=True):
-            st.markdown('<span class="cp-muted">Default probability</span>', unsafe_allow_html=True)
-            st.markdown(f'<div class="cp-pd">{p:.1%}</div>', unsafe_allow_html=True)
+            st.markdown('<span class="cp-muted">Chance of default</span>', unsafe_allow_html=True)
+            st.markdown(f'<div class="cp-pd">{p:.0%}</div>', unsafe_allow_html=True)
             st.markdown(zone_badge(zone, rating), unsafe_allow_html=True)
-            st.markdown(f'<p class="cp-muted" style="margin-top:.6rem">{ZONES[zone]["text"]}</p>',
-                        unsafe_allow_html=True)
-            st.caption(f"Rating = fixed risk scale (A < 5% … E ≥ 70%). Zone = bank policy: "
-                       f"green below {lower:.2f}, red from {upper:.2f} (target precision {target:.0%}; "
-                       f"adjustable in the Bank view).")
+            st.markdown(f'<p style="margin-top:.7rem">{ZONES[zone]["advice"]}</p>', unsafe_allow_html=True)
+            st.caption(f"Risk rating {rating} = {RATING_TEXT[rating]} (scale from A, lowest risk, to E, highest risk).")
 
-        st.markdown("**Top drivers of this decision**")
-        st.altair_chart(drivers_chart(contrib, row.iloc[0]), width="stretch")
-        st.caption("Exact SHAP values of the logistic regression, relative to the average applicant. "
-                   "Age is shown as a fairness correction: it offsets age information carried by other "
-                   "features. Explanations are for analysts; customer-facing explanations are a next step.")
+        st.markdown("**Main reasons for this result**")
+        st.altair_chart(reasons_chart(contrib, row.iloc[0]), width="stretch")
+        st.caption("↑ Red bars increase the risk, ↓ blue bars lower it. Longer bars have more influence. "
+                   "Age is only used to correct for age effects hidden in other information, so that "
+                   "applicants are not treated unfairly because of their age.")
 
         if zone == "Yellow":
-            st.markdown("**Credit memo for the analyst**")
-            memo = credit_memo(row.iloc[0], p, rating, zone, contrib, lower, upper)
-            st.code(memo, language=None, wrap_lines=True)
-            st.download_button("Download credit memo", memo, file_name="credit_memo.txt")
-
-        with st.expander("Compare with model (a) – all features, no fairness correction"):
-            pa = float(predict(row, "a")[0])
-            lo_a, up_a, _ = current_policy("a")
-            za = zone_of(pa, lo_a, up_a).item()
-            st.markdown(f"Model (a): default probability **{pa:.1%}** · " + zone_badge(za, rating_of(pa)),
-                        unsafe_allow_html=True)
-            st.caption("Model (a) uses sex and foreign worker status and no fairness correction "
-                       f"(boundaries {lo_a:.2f} / {up_a:.2f}).")
+            st.markdown("**Summary for the credit analyst**")
+            summary = analyst_summary(row.iloc[0], p, rating, zone, contrib)
+            st.code(summary, language=None, wrap_lines=True)
+            st.download_button("Download summary", summary, file_name="application_summary.txt")
 
 
 # --------------------------------------------------------------------------------------
-# Section 2: Batch upload
+# Check several applications
 # --------------------------------------------------------------------------------------
+REQUIRED_COLUMNS = [f for f in INPUT_FEATURES if f not in NOT_USED]
+
+
 @st.cache_data
 def sample_csv():
-    # 25 test applications spread evenly over the range of default probabilities
+    # 25 past applications spread over the whole range of risk
     test = evaluation[evaluation["split"] == "test"].sort_values("pd_final")
-    test_ids = test.index[np.linspace(0, len(test) - 1, 25).astype(int)]
-    return dataset.loc[test_ids, INPUT_FEATURES].to_csv(index=False).encode()
+    ids = test.index[np.linspace(0, len(test) - 1, 25).astype(int)]
+    return dataset.loc[ids, REQUIRED_COLUMNS].to_csv(index=False).encode()
 
 
 def section_batch():
-    st.subheader("Batch upload")
-    st.markdown('<span class="cp-muted">Upload a CSV with one application per row and the '
-                f'{len(INPUT_FEATURES)} application fields as columns.</span>', unsafe_allow_html=True)
+    st.subheader("Check several applications")
+    st.markdown('<span class="cp-muted">Upload a CSV file with one application per row. '
+                'Download the example file to see the expected format.</span>', unsafe_allow_html=True)
     c1, c2 = st.columns([2, 1])
     with c1:
-        uploaded = st.file_uploader("CSV file", type="csv")
+        uploaded = st.file_uploader("CSV file", type="csv", label_visibility="collapsed")
     with c2:
-        st.download_button("Download sample CSV (25 applications)", sample_csv(),
-                           file_name="sample_applications.csv", width="stretch")
-        use_sample = st.toggle("Use the sample file", value=uploaded is None, key="use_sample")
+        st.download_button("Download example file (25 applications)", sample_csv(),
+                           file_name="example_applications.csv", width="stretch")
+        use_sample = st.toggle("Try it with the example file", value=uploaded is None, key="use_sample")
 
     if uploaded is not None:
         data = pd.read_csv(uploaded)
     elif use_sample:
         data = pd.read_csv(pd.io.common.BytesIO(sample_csv()))
     else:
-        st.info("Upload a CSV file or use the sample file.")
+        st.info("Upload a CSV file or try the example file.")
         return
 
-    missing = [f for f in INPUT_FEATURES if f not in data.columns]
+    missing = [f for f in REQUIRED_COLUMNS if f not in data.columns]
     if missing:
-        st.error("Missing columns: " + ", ".join(missing))
+        st.error("The file is missing these columns: " + ", ".join(missing) +
+                 ". Please use the example file as a template.")
         return
-    data = data.drop(columns=[c for c in ["Risk"] if c in data.columns])
 
-    results = score_table(data)
-    lower, upper, target = current_policy("d")
-    zones = zone_of(results["Default probability (%)"].to_numpy() / 100, lower, upper)
+    p = predict(data)
+    lower, upper, _ = current_policy()
+    zones = zone_of(p, lower, upper)
+    contrib = explain(data)
+    main_reason = [field_label(c.idxmax()) if c.max() > 0 else "–" for _, c in contrib.iterrows()]
+    results = pd.DataFrame({
+        "Application": np.arange(1, len(data) + 1),
+        "Chance of default (%)": (100 * p).round(1),
+        "Risk rating": [rating_of(v) for v in p],
+        "Recommendation": [f"{ZONES[z]['icon']} {ZONES[z]['label']}" for z in zones],
+        "Main reason for risk": main_reason,
+        "Loan amount": data["LoanAmount"].to_numpy(),
+        "Duration (months)": data["LoanDuration"].to_numpy(),
+    })
+
     cols = st.columns(4)
     cols[0].metric("Applications", f"{len(results):,}")
     for col, z in zip(cols[1:], ZONE_ORDER):
-        col.metric(f"{ZONES[z]['icon']} {ZONES[z]['label']}",
-                   f"{(zones == z).sum():,} ({(zones == z).mean():.0%})")
+        col.metric(f"{ZONES[z]['icon']} {ZONES[z]['label']}", f"{(zones == z).sum():,} ({(zones == z).mean():.0%})")
 
-    st.dataframe(
-        results, hide_index=True, width="stretch", height=420,
-        column_config={"Default probability (%)": st.column_config.ProgressColumn(
-            "Default probability", format="%.1f%%", min_value=0, max_value=100)},
-    )
-    st.caption(f"Zones use the current policy: green below {lower:.2f}, red from {upper:.2f} "
-               f"(target precision {target:.0%}). Sex and foreign worker status are not used for scoring.")
-    st.download_button("Download results as CSV", results.to_csv(index=False).encode(),
+    st.dataframe(results, hide_index=True, width="stretch", height=420,
+                 column_config={"Chance of default (%)": st.column_config.ProgressColumn(
+                     "Chance of default", format="%.0f%%", min_value=0, max_value=100)})
+    download = pd.concat([results.drop(columns=["Application"]), data.reset_index(drop=True)], axis=1)
+    st.download_button("Download results", download.to_csv(index=False).encode(),
                        file_name="creditparity_results.csv", type="primary")
 
 
 # --------------------------------------------------------------------------------------
-# Section 3: Bank view
+# Bank settings
 # --------------------------------------------------------------------------------------
-def policy_metrics(model_key, lower, upper):
+def policy_results(model_key, lower, upper):
     test = evaluation[evaluation["split"] == "test"]
     p = test["pd_final" if model_key == "d" else "pd_comparison"].to_numpy()
     y = test["y"].to_numpy()
@@ -451,321 +522,227 @@ def policy_metrics(model_key, lower, upper):
     decline = p >= lower
     good51 = (test["age_group"].to_numpy() == "51+") & (y == 0)
     return {
-        "Auto-approve": (zone == "Green").mean(),
-        "Manual review": (zone == "Yellow").mean(),
-        "Decline recommended": (zone == "Red").mean(),
-        "Cost": int(5 * ((~decline) & (y == 1)).sum() + ((decline) & (y == 0)).sum()),
-        "Recall": ((decline) & (y == 1)).sum() / (y == 1).sum(),
-        "Precision": y[decline].mean() if decline.any() else np.nan,
-        "Red-zone precision": y[zone == "Red"].mean() if (zone == "Red").any() else np.nan,
-        "Good customers auto-declined": int(((zone == "Red") & (y == 0)).sum()),
-        "Defaults auto-approved": int(((zone == "Green") & (y == 1)).sum()),
-        "Good 51+ auto-declined": f"{int((good51 & (zone == 'Red')).sum())} of {int(good51.sum())}",
+        "Green": (zone == "Green").mean(), "Yellow": (zone == "Yellow").mean(), "Red": (zone == "Red").mean(),
+        "Cost": int(5 * ((~decline) & (y == 1)).sum() + (decline & (y == 0)).sum()),
+        "Caught": (decline & (y == 1)).sum() / (y == 1).sum(),
+        "Good declined": int(((zone == "Red") & (y == 0)).sum()),
+        "Bad approved": int(((zone == "Green") & (y == 1)).sum()),
+        "Good 51+ declined": f"{int((good51 & (zone == 'Red')).sum())} of {int(good51.sum())}",
+        "n_good": int((y == 0).sum()), "n_bad": int((y == 1).sum()), "n": len(y),
     }
 
 
-def fairness_tables(model_key, lower, upper):
+GROUP_NAMES = {"female": "Women", "male": "Men", "19-25": "Age 19–25", "26-35": "Age 26–35",
+               "36-50": "Age 36–50", "51+": "Age 51+", "no": "Not a foreign worker", "yes": "Foreign worker"}
+
+
+def group_table(model_key, lower, upper):
     test = evaluation[evaluation["split"] == "test"].copy()
     p = test["pd_final" if model_key == "d" else "pd_comparison"].to_numpy()
-    test["decline"] = p >= lower
     test["zone"] = zone_of(p, lower, upper)
-    groups = {"Sex": "Sex", "Age group": "age_group", "Foreign worker": "ForeignWorker"}
-    per_group, summary = [], []
-    for name, col in groups.items():
-        rows = []
-        for g, d in test.groupby(col):
-            good, bad = d[d["y"] == 0], d[d["y"] == 1]
-            rows.append({"Attribute": name, "Group": g, "Applications": len(d),
-                         "Rejection rate": d["decline"].mean(),
-                         "Good customers declined (FPR)": good["decline"].mean(),
-                         "Defaults caught (recall)": bad["decline"].mean(),
-                         "Green": (d["zone"] == "Green").mean(), "Yellow": (d["zone"] == "Yellow").mean(),
-                         "Red": (d["zone"] == "Red").mean()})
-        rows = pd.DataFrame(rows)
-        per_group.append(rows)
-        summary.append({"Attribute": name,
-                        "Demographic parity difference": rows["Rejection rate"].max() - rows["Rejection rate"].min(),
-                        "Equal opportunity difference": rows["Good customers declined (FPR)"].max()
-                        - rows["Good customers declined (FPR)"].min()})
-    return pd.concat(per_group, ignore_index=True), pd.DataFrame(summary)
-
-
-def zone_share_chart(per_group):
+    test["not_approved"] = p >= lower
     rows = []
-    for _, r in per_group.iterrows():
-        label = f"Foreign worker: {r['Group']}" if r["Attribute"] == "Foreign worker" else str(r["Group"])
+    for col in ["Sex", "age_group", "ForeignWorker"]:
+        for g, d in test.groupby(col):
+            good = d[d["y"] == 0]
+            rows.append({"Group": GROUP_NAMES.get(g, g), "Applications": len(d),
+                         **{ZONES[z]["short"]: (d["zone"] == z).mean() for z in ZONE_ORDER},
+                         "Good customers not approved automatically": good["not_approved"].mean()})
+    return pd.DataFrame(rows)
+
+
+def zone_share_chart(table):
+    rows = []
+    for _, r in table.iterrows():
         start = 0.0
         for z in ZONE_ORDER:
-            rows.append({"Group": label, "Zone": f"{ZONES[z]['icon']} {z} – {ZONES[z]['label']}",
-                         "start": start, "end": start + r[z], "Share (%)": round(100 * r[z], 1)})
-            start += r[z]
+            share = r[ZONES[z]["short"]]
+            rows.append({"Group": r["Group"], "Result": f"{ZONES[z]['icon']} {ZONES[z]['short']}",
+                         "start": start, "end": start + share, "Share": f"{share:.0%}"})
+            start += share
     df = pd.DataFrame(rows)
     order = list(dict.fromkeys(df["Group"]))
-    zone_labels = [f"{ZONES[z]['icon']} {z} – {ZONES[z]['label']}" for z in ZONE_ORDER]
+    labels = [f"{ZONES[z]['icon']} {ZONES[z]['short']}" for z in ZONE_ORDER]
     return alt.Chart(df).mark_bar(stroke=SURFACE, strokeWidth=2).encode(
-        x=alt.X("start:Q", title="Share of applications", scale=alt.Scale(domain=[0, 1]),
-                axis=alt.Axis(format="%", gridColor="#ececea", labelColor=TEXT_SECONDARY, titleColor=TEXT_SECONDARY)),
+        x=alt.X("start:Q", title=None, scale=alt.Scale(domain=[0, 1]),
+                axis=alt.Axis(format="%", gridColor="#ececea", labelColor=TEXT_SECONDARY)),
         x2="end:Q",
         y=alt.Y("Group:N", sort=order, title=None, scale=alt.Scale(paddingInner=0.25),
                 axis=alt.Axis(labelColor="#0b0b0b", labelLimit=200)),
-        color=alt.Color("Zone:N", sort=zone_labels, scale=alt.Scale(domain=zone_labels,
+        color=alt.Color("Result:N", sort=labels, scale=alt.Scale(domain=labels,
                         range=[ZONES[z]["color"] for z in ZONE_ORDER]),
-                        legend=alt.Legend(orient="top", title=None, labelLimit=260)),
-        tooltip=["Group", "Zone", "Share (%)"],
-    ).properties(height=48 * len(order)).configure_view(stroke=None)
+                        legend=alt.Legend(orient="bottom", direction="vertical", title=None, labelLimit=260)),
+        tooltip=["Group", "Result", "Share"],
+    ).properties(height=44 * len(order)).configure_view(stroke=None)
 
 
-def workload_chart(lower, target):
-    targets = np.round(np.arange(0.70, 0.951, 0.01), 2)
-    test = evaluation[evaluation["split"] == "test"]
-    p = test["pd_final"].to_numpy()
-    rows = [{"Target precision": t,
-             "Manual review": ((p >= lower) & (p < upper_for_precision("d", lower, float(t)))).mean()}
-            for t in targets]
-    df = pd.DataFrame(rows)
-    df["Manual review (%)"] = (100 * df["Manual review"]).round(1)
-    base = alt.Chart(df).encode(
-        x=alt.X("Target precision:Q", axis=alt.Axis(format="%", labelColor=TEXT_SECONDARY, titleColor=TEXT_SECONDARY),
-                scale=alt.Scale(domain=[0.70, 0.95])),
-        y=alt.Y("Manual review:Q", title="Manual review",
-                axis=alt.Axis(format="%", gridColor="#ececea", labelColor=TEXT_SECONDARY, titleColor=TEXT_SECONDARY),
-                scale=alt.Scale(zero=False)),
-    )
-    line = base.mark_line(color=MODEL_COLORS["d"], strokeWidth=2)
-    hover = base.mark_circle(size=120, opacity=0).encode(tooltip=["Target precision", "Manual review (%)"])
-    current = df[np.isclose(df["Target precision"], round(target, 2))]
-    point = alt.Chart(current).mark_circle(size=110, color=MODEL_COLORS["d"], stroke=SURFACE, strokeWidth=2).encode(
-        x="Target precision:Q", y="Manual review:Q", tooltip=["Target precision", "Manual review (%)"])
-    return (line + hover + point).properties(height=230).configure_view(stroke=None)
-
-
-def section_bank():
-    st.subheader("Bank view – decision policy")
-    st.markdown('<span class="cp-muted">Move the sliders to see how the policy changes analyst workload, '
-                'cost and fairness. All figures are computed on the 1,000 test applications.</span>',
+def section_settings():
+    st.subheader("Bank settings")
+    st.markdown('<span class="cp-muted">Decide when applications are handled automatically. The results below '
+                'show what these settings would have meant for 1,000 past applications.</span>',
                 unsafe_allow_html=True)
 
-    controls, kpis = st.columns([1, 2.2], gap="large")
+    controls, results = st.columns([1, 2], gap="large")
     with controls:
         with st.container(border=True):
-            st.markdown("**Policy for the final model (d)**")
-            st.slider("Lower boundary: auto-approve below", 0.05, 0.40, step=0.01,
-                      value=st.session_state["lower_d"], key="w_lower_d",
+            st.slider("Approve automatically when the chance of default is below", 0.05, 0.40, step=0.01,
+                      value=st.session_state["lower_d"], key="w_lower_d", format="%.2f",
                       on_change=persist, args=("w_lower_d", "lower_d"),
-                      help=f"Cost-optimal value (5:1 cost matrix): {POLICY['models']['d']['lower_boundary']:.2f}")
-            st.slider("Target precision for automatic declines", 0.70, 0.95, step=0.01,
-                      value=st.session_state["target"], key="w_target", format="%.2f",
+                      help="Recommended: 0.15. This value keeps the expected losses lowest.")
+            st.slider("Decline automatically only if at least this share of declines are truly bad loans",
+                      0.70, 0.95, step=0.01, value=st.session_state["target"], key="w_target", format="%.2f",
                       on_change=persist, args=("w_target", "target"),
-                      help="Share of red-zone applications that must be actual defaults. "
-                           "The upper boundary is the lowest threshold that meets this target.")
-            lower, upper, target = current_policy("d")
-            m = policy_metrics("d", lower, upper)
-            st.markdown(f"Upper boundary: **{upper:.2f}** → manual review: **{m['Manual review']:.1%}** "
-                        "of applications")
-            st.button("Reset to the approved policy", on_click=reset_policy)
-            st.toggle("Compare with model (a)", key="compare",
-                      help="Model (a): all features incl. sex, no fairness correction; its own "
-                           "cost-optimal lower boundary and the same target precision.")
+                      help="Recommended: 0.80. Higher values mean fewer good customers are declined "
+                           "automatically, but more applications need a manual review.")
+            lower, upper, _ = current_policy()
+            st.markdown(f"→ Approved automatically below **{lower:.0%}** chance of default, declined "
+                        f"automatically from **{upper:.0%}**, everything in between is reviewed by an analyst.")
+            st.button("Back to recommended settings", on_click=reset_settings)
+            st.toggle("Compare with a standard model without fairness correction", key="compare")
 
     compare = st.session_state["compare"]
-    baseline_cost = policy_metrics("a", 0.5, 0.5)["Cost"]          # (a) at the default 0.5 threshold
-    with kpis:
-        lo_a, up_a, _ = current_policy("a")
-        ma = policy_metrics("a", lo_a, up_a)
-        r1 = st.columns(3)
-        for col, key, z in zip(r1, ["Auto-approve", "Manual review", "Decline recommended"], ZONE_ORDER):
-            delta = f"(a): {ma[key]:.1%}" if compare else None
-            col.metric(f"{ZONES[z]['icon']} {key}", f"{m[key]:.1%}", delta, delta_color="off", delta_arrow="off")
-        r2 = st.columns(4)
-        r2[0].metric("Cost (5·FN + 1·FP)", f"{m['Cost']:,}",
-                     f"{m['Cost'] / baseline_cost - 1:+.0%} vs. 0.5", delta_color="inverse",
-                     help="Compared with model (a) at the default threshold 0.5")
-        r2[1].metric("Recall (defaults caught)", f"{m['Recall']:.1%}",
-                     f"(a): {ma['Recall']:.1%}" if compare else None, delta_color="off", delta_arrow="off")
-        r2[2].metric("Precision of declines", f"{m['Precision']:.1%}",
-                     f"(a): {ma['Precision']:.1%}" if compare else None, delta_color="off", delta_arrow="off")
-        r2[3].metric("Red-zone precision", f"{m['Red-zone precision']:.1%}",
-                     f"(a): {ma['Red-zone precision']:.1%}" if compare else None, delta_color="off", delta_arrow="off")
-        r3 = st.columns(3)
-        r3[0].metric("Good customers auto-declined", m["Good customers auto-declined"],
-                     f"(a): {ma['Good customers auto-declined']}" if compare else None, delta_color="off", delta_arrow="off")
-        r3[1].metric("Defaults auto-approved", m["Defaults auto-approved"],
-                     f"(a): {ma['Defaults auto-approved']}" if compare else None, delta_color="off", delta_arrow="off")
-        r3[2].metric("Good customers 51+ in red", m["Good 51+ auto-declined"],
-                     f"(a): {ma['Good 51+ auto-declined']}" if compare else None, delta_color="off", delta_arrow="off")
-        st.caption(f"Cost counts every application with a default probability ≥ the lower boundary as declined "
-                   f"(single-threshold logic). Baseline: model (a) at the default threshold 0.5 = {baseline_cost} "
-                   + (f"· Model (a) boundaries: {lo_a:.2f} / {up_a:.2f}, cost {ma['Cost']}." if compare else ""))
-
-    st.markdown("#### Analyst workload vs. target precision")
-    st.altair_chart(workload_chart(lower, target), width="stretch")
-    st.caption("A higher target means fewer wrongful automatic declines, but more cases for the analysts.")
-
-    st.markdown("#### Fairness")
-    per_group, summary = fairness_tables("d", lower, upper)
-    shown = [("(d) Final model", summary)]
-    if compare:
-        pg_a, sum_a = fairness_tables("a", lo_a, up_a)
-        shown.append(("(a) Comparison model", sum_a))
-    cols = st.columns(len(shown))
-    for col, (name, s) in zip(cols, shown):
-        with col:
-            st.markdown(f"**{name}**")
-            st.dataframe(s.set_index("Attribute").style.format("{:.2f}"), width="stretch")
-    st.caption("Demographic parity difference = largest gap in rejection rates between groups. "
-               "Equal opportunity difference = largest gap in the share of good customers who are declined. "
-               "0 = no gap. Rejection = default probability ≥ lower boundary.")
-
-    st.markdown("**Zone shares by group – final model (d)**")
-    st.altair_chart(zone_share_chart(per_group), width="stretch")
-    st.markdown("**Metrics by group – final model (d)**")
-    table = per_group.set_index(["Attribute", "Group"])[
-        ["Applications", "Rejection rate", "Good customers declined (FPR)", "Defaults caught (recall)"]]
-    st.dataframe(table.style.format({"Rejection rate": "{:.0%}", "Good customers declined (FPR)": "{:.0%}",
-                                     "Defaults caught (recall)": "{:.0%}"}), width="stretch")
-    if compare:
-        st.markdown("**Zone shares by group – comparison model (a)**")
-        st.altair_chart(zone_share_chart(pg_a), width="stretch")
-    st.caption("Small groups: only 23 test applicants are not foreign workers and 21 good customers are "
-               "aged 51+, so their figures are uncertain.")
-
-
-# --------------------------------------------------------------------------------------
-# Section 4: Model info
-# --------------------------------------------------------------------------------------
-def section_info():
-    st.subheader("Model info")
-
-    st.markdown("#### Rating and zone")
-    st.markdown("**The rating (A–E) describes the applicant's risk and depends only on the default "
-                "probability; the zone (green / yellow / red) describes how the bank handles the "
-                "application and follows the policy settings, so moving a slider can change the zone "
-                "but never the rating.**")
-    scale = pd.DataFrame([{"Rating": r, "Default probability": f"{lo:.0%} – {min(hi, 1):.0%}"
-                           if hi <= 1 else f"≥ {lo:.0%}"} for r, lo, hi in RATING_SCALE])
-    lower, upper, target = current_policy("d")
-    zones = pd.DataFrame([
-        {"Zone": f"{ZONES['Green']['icon']} Green – auto-approve", "Rule": f"PD < {lower:.2f}"},
-        {"Zone": f"{ZONES['Yellow']['icon']} Yellow – manual review", "Rule": f"{lower:.2f} ≤ PD < {upper:.2f}"},
-        {"Zone": f"{ZONES['Red']['icon']} Red – decline recommended", "Rule": f"PD ≥ {upper:.2f}"},
-    ])
-    c1, c2 = st.columns(2)
-    c1.dataframe(scale, hide_index=True, width="stretch")
-    c2.dataframe(zones, hide_index=True, width="stretch")
-    st.caption("Lower boundary = cost-optimal threshold for a 5:1 cost ratio (missed default vs. rejected good "
-               "customer). Upper boundary = lowest threshold at which at least 80% of automatic declines are "
-               "actual defaults. Both chosen with 5-fold cross-validation on the training data.")
-
-    st.markdown("#### Why a simple model?")
-    cv = pd.DataFrame([
-        ("Logistic regression", 0.857, 0.010, "✔ selected"),
-        ("XGBoost (tuned)", 0.850, 0.009, ""),
-        ("Random forest (tuned)", 0.848, 0.009, ""),
-        ("Random forest (default)", 0.844, 0.007, ""),
-        ("XGBoost (default)", 0.829, 0.010, ""),
-    ], columns=["Model", "ROC AUC (5-fold CV)", "Std", ""])
-    c1, c2 = st.columns([1.1, 1], gap="large")
-    with c1:
-        st.dataframe(cv, hide_index=True, width="stretch",
-                     column_config={"ROC AUC (5-fold CV)": st.column_config.NumberColumn(format="%.3f"),
-                                    "Std": st.column_config.NumberColumn(format="%.3f")})
-    with c2:
-        st.markdown(
-            "- The logistic regression has the best ROC AUC and wins **in all 5 folds** against every tree model.\n"
-            "- An initial analysis with **IBM watsonx AutoAI** selected an XGBoost pipeline by accuracy "
-            "(79.6% on a 499-case holdout), but it caught only **53% of defaults**.\n"
-            "- The real gain comes from the **cost-based threshold**: recall rises from 63% to 95%.\n"
-            "- A logistic regression is transparent: every driver of a decision can be shown exactly, which "
-            "matters for a high-risk AI system under the EU AI Act.")
-
-    st.markdown("#### The price of fairness")
+    r = policy_results("d", lower, upper)
     lo_a, up_a, _ = current_policy("a")
-    md_, ma = policy_metrics("d", lower, upper), policy_metrics("a", lo_a, up_a)
-    _, sd = fairness_tables("d", lower, upper)
-    _, sa = fairness_tables("a", lo_a, up_a)
-    eod = lambda s, a: s.set_index("Attribute").loc[a, "Equal opportunity difference"]
-    comp = pd.DataFrame({
-        "(d) Fair model – final": [f"{lower:.2f} / {upper:.2f}", md_["Cost"], f"{md_['Recall']:.1%}",
-                                   f"{md_['Manual review']:.0%}", md_["Defaults auto-approved"],
-                                   md_["Good 51+ auto-declined"], f"{eod(sd, 'Age group'):.2f}",
-                                   f"{eod(sd, 'Sex'):.2f}", "No"],
-        "(a) All features – comparison": [f"{lo_a:.2f} / {up_a:.2f}", ma["Cost"], f"{ma['Recall']:.1%}",
-                                          f"{ma['Manual review']:.0%}", ma["Defaults auto-approved"],
-                                          ma["Good 51+ auto-declined"], f"{eod(sa, 'Age group'):.2f}",
-                                          f"{eod(sa, 'Sex'):.2f}", "Yes"],
-    }, index=["Boundaries", "Cost (test set)", "Recall", "Manual review", "Defaults auto-approved",
-              "Good customers 51+ auto-declined", "Age gap (EOD)", "Sex gap (EOD)", "Uses sex as input"])
-    st.dataframe(comp.astype(str), width="stretch")
-    st.markdown(
-        "- **Final model (d):** logistic regression trained with *reweighing* on age group, sex and foreign "
-        "worker status. **Sex and foreign worker status are not inputs**: two applicants who differ only in "
-        "sex get the same score. Age stays as an input to correct for the many features that reveal age "
-        "indirectly (dropping it does not remove the age gap).\n"
-        "- **Equal treatment vs. equal outcomes.** A tested alternative that uses sex as an input almost "
-        "removes the sex gap, but only by rating women as riskier than men with otherwise identical features. "
-        "Every model that treats men and women equally shows a gap of about 0.2 against men on this data. "
-        "CreditParity chooses equal treatment.")
+    ra = policy_results("a", lo_a, up_a)
+    standard_cost = policy_results("a", 0.5, 0.5)["Cost"]
+    note = lambda v: f"Standard model: {v}" if compare else None
+    kw = {"delta_color": "off", "delta_arrow": "off"}
+    with results:
+        c = st.columns(3)
+        for col, z in zip(c, ZONE_ORDER):
+            col.metric(f"{ZONES[z]['icon']} {ZONES[z]['short']}", f"{r[z]:.0%}", note(f"{ra[z]:.0%}"), **kw)
+        c = st.columns(2)
+        c[0].metric("Lower losses vs. a standard rule", f"{1 - r['Cost'] / standard_cost:.0%}",
+                    note(f"{1 - ra['Cost'] / standard_cost:.0%}"), **kw,
+                    help="Compared with approving every application with a chance of default below 50%. "
+                         "A missed bad loan is counted as five times as costly as a turned-away good customer.")
+        c[1].metric("Bad loans caught", f"{r['Caught']:.0%}", note(f"{ra['Caught']:.0%}"), **kw,
+                    help="Share of bad loans that are not approved automatically.")
+        c = st.columns(2)
+        c[0].metric("Good customers declined automatically", f"{r['Good declined']}",
+                    note(ra["Good declined"]), **kw,
+                    help=f"Out of {r['n_good']} good customers among the {r['n']:,} past applications.")
+        c[1].metric("Bad loans approved automatically", f"{r['Bad approved']}", note(ra["Bad approved"]), **kw,
+                    help=f"Out of {r['n_bad']} bad loans among the {r['n']:,} past applications.")
+        c = st.columns(2)
+        c[0].metric("Good customers aged 51+ declined automatically", r["Good 51+ declined"],
+                    note(ra["Good 51+ declined"]), **kw)
 
-    st.markdown("#### Limitations")
+    st.markdown("#### Fairness check")
+    st.markdown('<span class="cp-muted">How are different groups of applicants handled? In a fair process, '
+                'similar shares of good customers should be approved in every group.</span>',
+                unsafe_allow_html=True)
+    table = group_table("d", lower, upper)
+    left, right = st.columns([1.2, 1], gap="large")
+    with left:
+        st.altair_chart(zone_share_chart(table), width="stretch")
+    with right:
+        show = table.set_index("Group")[["Good customers not approved automatically"]]
+        if compare:
+            show = show.rename(columns={"Good customers not approved automatically": "CreditParity"})
+            show["Standard model"] = group_table("a", lo_a, up_a).set_index("Group")[
+                "Good customers not approved automatically"]
+        st.dataframe(show.style.format("{:.0%}"), width="stretch")
+        st.caption("Share of good customers in each group who are not approved automatically (they are reviewed "
+                   "or declined). Groups with few applicants (not a foreign worker, age 51+) are less reliable.")
+    if compare:
+        st.markdown("**Standard model without fairness correction**")
+        st.altair_chart(zone_share_chart(group_table("a", lo_a, up_a)), width="stretch")
+
+
+# --------------------------------------------------------------------------------------
+# How it works
+# --------------------------------------------------------------------------------------
+def section_about():
+    st.subheader("How it works")
+
+    st.markdown("#### From application to recommendation")
+    steps = [
+        ("1 · Estimate the risk", "CreditParity compares the application with thousands of past loans and "
+                                  "estimates the chance that the loan will not be repaid."),
+        ("2 · Sort into three groups", "Low-risk applications are approved automatically, high-risk "
+                                       "applications are declined, and uncertain ones go to a credit analyst."),
+        ("3 · People decide", "Analysts make the final decision on uncertain cases, and every declined "
+                              "applicant can ask for a personal review."),
+    ]
+    cols = st.columns(3)
+    for col, (title, text) in zip(cols, steps):
+        col.markdown(f'<div class="cp-card"><h4>{title}</h4><p>{text}</p></div>', unsafe_allow_html=True)
+
+    lower, upper, _ = current_policy()
+    st.markdown("#### Risk rating and recommendation")
+    st.markdown("The risk rating (A–E) describes the applicant's risk and depends only on the chance of default; "
+                "the recommendation (approve, review, decline) describes how the bank handles the application and "
+                "follows the bank settings, so changing the settings can change the recommendation but never the "
+                "rating.")
+    c1, c2 = st.columns(2)
+    c1.dataframe(pd.DataFrame([{"Risk rating": r,
+                                "Chance of default": f"{lo:.0%} – {hi:.0%}" if hi <= 1 else f"{lo:.0%} or more",
+                                "Meaning": RATING_TEXT[r]} for r, lo, hi in RATING_SCALE]),
+                 hide_index=True, width="stretch")
+    c2.dataframe(pd.DataFrame([
+        {"Recommendation": f"{ZONES['Green']['icon']} {ZONES['Green']['label']}",
+         "Chance of default": f"below {lower:.0%}"},
+        {"Recommendation": f"{ZONES['Yellow']['icon']} {ZONES['Yellow']['label']}",
+         "Chance of default": f"{lower:.0%} – {upper:.0%}"},
+        {"Recommendation": f"{ZONES['Red']['icon']} {ZONES['Red']['label']}",
+         "Chance of default": f"{upper:.0%} or more"},
+    ]), hide_index=True, width="stretch")
+
+    st.markdown("#### Our fairness promise")
     st.markdown(
-        "- The dataset is **synthetic** (IBM version of German Credit). Some patterns are implausible, e.g. a "
-        "negative checking balance lowers the predicted risk.\n"
-        "- The **5:1 cost ratio** and the **80% precision target** are business assumptions. Before deployment "
-        "they should be validated with the bank's risk and compliance teams; thresholds should be monitored "
-        "and adjusted to the available analyst capacity.\n"
-        "- About **60% of applications go to manual review** with the approved policy.\n"
-        "- The remaining **sex gap of about 0.2** works against men and results from differences in other "
-        "features. It needs legal review (direct vs. indirect discrimination) and monitoring.\n"
-        "- **Age is used directly** as a fairness correction, and reweighing uses age, sex and foreign worker "
-        "status to compute training weights. Both need legal review.\n"
-        "- **The age correction shifts predicted risk toward younger applicants.** Applicants aged 19–25 are "
-        "rated about **4× riskier than their actual default rate** (average predicted default probability 21% vs. "
-        "5% on the test set), while applicants aged 51+ are rated **less risky** (50% vs. 76%). All else equal, ten "
-        "years younger multiplies the odds of default by 2.55, so age alone can move an application across zones.\n"
-        "- **Affected young applicants are mostly routed to manual review**: 42% of good customers aged 19–25 are "
-        "not auto-approved (17% without reweighing), but only **2.5% are declined automatically**.\n"
-        "- **Possible next step: partial reweighing**, i.e. a weaker correction strength, to balance the remaining "
-        "age gap against this shift toward younger applicants.\n"
-        "- Explanations are **analyst-facing only**. A customer-facing explanation (GDPR Art. 22, right to "
-        "meaningful information) is a next step that requires legal review.\n"
-        "- Cost figures assume that every application with a default probability above the lower boundary is "
-        "declined; analyst decisions may change this.\n"
-        "- The models are trained on 4,000 applications so that the test results stay verifiable; a production "
-        "model would be refit on all data and revalidated.")
-    st.caption(f"Model trained with scikit-learn {META['sklearn_version']}. Final team project, "
-               "BUS/FIN 241A Machine Learning, Brandeis University.")
+        "- **Sex and nationality are never used.** Two applicants who differ only in these points get the same result.\n"
+        "- **Older applicants are not turned away automatically.** A standard model would decline many creditworthy "
+        "applicants over 50; CreditParity corrects for this and sends uncertain cases to a person instead.\n"
+        "- **Every result is explained.** Analysts see the main reasons behind each recommendation.")
+
+    st.markdown("#### Good to know")
+    st.markdown(
+        "- The results are **estimates, not certainties**. They are based on example data, not on real customers.\n"
+        "- To correct for age, CreditParity rates **young applicants as riskier** than their group's actual track "
+        "record (about 4 times) and **older applicants as less risky**. Most young applicants affected by this are "
+        "sent to an analyst rather than declined (only about 2.5% are declined automatically).\n"
+        "- About **6 in 10 applications go to a credit analyst** with the recommended settings. The bank settings "
+        "can reduce this workload, at the price of more automatic declines.\n"
+        "- Even without using sex as an input, **men are approved automatically less often than women**, because "
+        "their other information differs on average.\n"
+        "- The recommended settings are business choices and should be **confirmed by the bank's risk and "
+        "compliance teams** before real use. A legal review is needed before CreditParity is used with real "
+        "customers.\n"
+        "- The explanations are meant for **bank staff**. A version written for applicants is planned.")
+    st.caption(f"Technical documentation and methodology: [project repository on GitHub]({REPO_URL}).")
 
 
 # --------------------------------------------------------------------------------------
 # Navigation
 # --------------------------------------------------------------------------------------
-SECTIONS = {"single": "1 · Single application", "batch": "2 · Batch upload",
-            "bank": "3 · Bank view", "info": "4 · Model info"}
+SECTIONS = {"home": "🏠 Home", "single": "📝 Check an application", "batch": "📂 Check several applications",
+            "bank": "⚙️ Bank settings", "info": "💡 How it works"}
 
 
 def main():
     init_state()
-    header()
-    requested = st.query_params.get("section", "single")
+    st.logo(str(LOGO_PATH), size="large")
+    requested = st.query_params.get("section", "home")
     keys = list(SECTIONS)
     with st.sidebar:
-        st.markdown("### 🏦 CreditParity")
+        st.markdown("### CreditParity")
         choice = st.radio("Section", keys, index=keys.index(requested) if requested in keys else 0,
                           format_func=SECTIONS.get, label_visibility="collapsed")
         st.query_params["section"] = choice
-        st.divider()
-        lower, upper, target = current_policy("d")
-        st.markdown("**Active policy – model (d)**")
-        st.markdown(f"{ZONES['Green']['icon']} Green: PD < {lower:.2f}  \n"
-                    f"{ZONES['Yellow']['icon']} Yellow: {lower:.2f} – {upper:.2f}  \n"
-                    f"{ZONES['Red']['icon']} Red: PD ≥ {upper:.2f}")
-        st.caption(f"Target precision for automatic declines: {target:.0%}. Change it in the Bank view.")
-        st.divider()
-        st.caption("Analyst tool · explanations are for internal use. Sex and foreign worker status are "
-                   "not used for scoring.")
+        if choice != "home":
+            st.divider()
+            lower, upper, _ = current_policy()
+            st.markdown("**Current settings**")
+            st.markdown(f"{ZONES['Green']['icon']} Approve below {lower:.0%}  \n"
+                        f"{ZONES['Yellow']['icon']} Review {lower:.0%} – {upper:.0%}  \n"
+                        f"{ZONES['Red']['icon']} Decline from {upper:.0%}")
+            st.caption("Change them under Bank settings.")
 
-    {"single": section_single, "batch": section_batch,
-     "bank": section_bank, "info": section_info}[choice]()
+    if choice != "home":
+        header()
+    {"home": section_home, "single": section_application, "batch": section_batch,
+     "bank": section_settings, "info": section_about}[choice]()
 
 
 main()
