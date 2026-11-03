@@ -6,7 +6,7 @@ CreditParity is a credit risk scoring prototype for a bank's retail customers th
 
 **How it works:** A credit analyst enters a single loan application (or uploads several as a CSV) and receives a default probability, a rating class, a decision zone and an explanation of the main drivers.
 
-![CreditParity home page](docs/screenshots/5_creditparity_social_preview.png)
+![CreditParity home page](docs/screenshots/5_creditparity_banner.png)
 
 
 ## Business case
