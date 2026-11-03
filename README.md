@@ -1,7 +1,5 @@
 # CreditParity – Profitable, Fair Lending Decisions
 
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://creditparity.streamlit.app)
-
 > **Live app: [creditparity.streamlit.app](https://creditparity.streamlit.app)**
 
 CreditParity is a credit risk scoring prototype for a bank's retail customers that aims to be both **profitable** and **demonstrably fair**. The name refers to *Demographic Parity*, one of the fairness metrics we measure.
