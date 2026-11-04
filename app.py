@@ -12,6 +12,7 @@ documented in the notebooks and the README of the repository.
 """
 from pathlib import Path
 import base64
+import hashlib
 
 import altair as alt
 import joblib
@@ -173,18 +174,24 @@ st.markdown(f"""
 # --------------------------------------------------------------------------------------
 # Loading
 # --------------------------------------------------------------------------------------
+# The file hash is part of each cache key, so a redeploy with new model files never
+# reuses an object cached from the old files (Streamlit Cloud keeps the process running).
+def file_version(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 @st.cache_resource
-def load_bundle():
+def load_bundle(version):
     return joblib.load(MODEL_DIR / "creditparity_bundle.joblib")
 
 
 @st.cache_data
-def load_evaluation():
+def load_evaluation(version):
     return pd.read_csv(MODEL_DIR / "evaluation_data.csv", index_col="application_id")
 
 
 @st.cache_data
-def load_dataset():
+def load_dataset(version):
     return pd.read_csv(DATA_PATH)
 
 
@@ -193,15 +200,15 @@ def logo_data_uri():
     return "data:image/svg+xml;base64," + base64.b64encode(LOGO_PATH.read_bytes()).decode()
 
 
-bundle = load_bundle()
+bundle = load_bundle(file_version(MODEL_DIR / "creditparity_bundle.joblib"))
 POLICY = bundle["policy"]
 META = bundle["metadata"]
 MODELS = {"final": bundle["final_model"], "a": bundle["comparison_model"]}
 EXPLAIN = bundle["explain_data"]
 INPUT_FEATURES = META["input_features"]
 CATEGORICAL = META["categorical_features"]
-evaluation = load_evaluation()
-dataset = load_dataset()
+evaluation = load_evaluation(file_version(MODEL_DIR / "evaluation_data.csv"))
+dataset = load_dataset(file_version(DATA_PATH))
 
 
 # --------------------------------------------------------------------------------------
