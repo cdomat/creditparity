@@ -196,7 +196,7 @@ def logo_data_uri():
 bundle = load_bundle()
 POLICY = bundle["policy"]
 META = bundle["metadata"]
-MODELS = {"d": bundle["final_model"], "a": bundle["comparison_model"]}
+MODELS = {"final": bundle["final_model"], "a": bundle["comparison_model"]}
 EXPLAIN = bundle["explain_data"]
 INPUT_FEATURES = META["input_features"]
 CATEGORICAL = META["categorical_features"]
@@ -234,7 +234,7 @@ def upper_for_precision(model_key, lower, target):
     """Lowest threshold >= lower at which at least `target` of the automatic declines are
     actual defaults (on cross-validated predictions of the training applications)."""
     oof = evaluation[evaluation["split"] == "train_oof"]
-    p = oof["pd_final" if model_key == "d" else "pd_comparison"].to_numpy()
+    p = oof["pd_final" if model_key == "final" else "pd_comparison"].to_numpy()
     y = oof["y"].to_numpy()
     for t in THRESHOLDS[THRESHOLDS >= lower]:
         red = p >= t
@@ -259,7 +259,7 @@ def init_state():
     for k in list(st.session_state.keys()):
         if k.startswith("f_"):
             st.session_state[k] = st.session_state[k]
-    st.session_state.setdefault("lower_d", POLICY["models"]["d"]["lower_boundary"])
+    st.session_state.setdefault("lower_final", POLICY["models"]["final"]["lower_boundary"])
     st.session_state.setdefault("target", POLICY["target_precision"])
     for f, v in form_defaults().items():
         if f not in NOT_USED:
@@ -267,7 +267,7 @@ def init_state():
 
 
 # The sliders work in whole percent (15 = 15%); the settings are stored as shares (0.15).
-SETTING_WIDGETS = {"lower_d": "w_lower_d", "target": "w_target"}
+SETTING_WIDGETS = {"lower_final": "w_lower_final", "target": "w_target"}
 
 
 def to_percent(share):
@@ -279,14 +279,14 @@ def persist(state_key):
 
 
 def reset_settings():
-    recommended = {"lower_d": POLICY["models"]["d"]["lower_boundary"], "target": POLICY["target_precision"]}
+    recommended = {"lower_final": POLICY["models"]["final"]["lower_boundary"], "target": POLICY["target_precision"]}
     for state_key, value in recommended.items():
         st.session_state[state_key] = value
         st.session_state[SETTING_WIDGETS[state_key]] = to_percent(value)
 
 
-def current_policy(model_key="d"):
-    lower = (st.session_state["lower_d"] if model_key == "d"
+def current_policy(model_key="final"):
+    lower = (st.session_state["lower_final"] if model_key == "final"
              else POLICY["models"]["a"]["lower_boundary"])
     target = st.session_state["target"]
     return lower, upper_for_precision(model_key, lower, target), target
@@ -306,11 +306,11 @@ def complete(data):
     return data[INPUT_FEATURES]
 
 
-def predict(data, model_key="d"):
+def predict(data, model_key="final"):
     return MODELS[model_key].predict_proba(complete(data))[:, 1]
 
 
-def explain(data, model_key="d"):
+def explain(data, model_key="final"):
     """Exact contribution of each application field to the risk (SHAP values of the
     logistic regression, in log-odds), relative to the average applicant."""
     model, info = MODELS[model_key], EXPLAIN[model_key]
@@ -398,8 +398,8 @@ def analyst_summary(row, p, rating, zone, contrib):
         "Please check:",
         "  • income, employment and account details",
         "  • whether the main risk factors are temporary",
-        "  • age is only a fairness correction, never",
-        "    a reason on its own",
+        "  • age is only a partial fairness",
+        "    correction, never a reason on its own",
         "",
         "Decision: [ ] approve  [ ] with conditions",
         "          [ ] decline",
@@ -418,7 +418,7 @@ def section_home():
   <p class="cp-tagline">Profitable, Fair Lending Decisions</p>
   <p class="cp-mission">Our mission is to help banks lend responsibly and fairly. CreditParity estimates how
   likely an applicant is to repay, explains the result in plain words and leaves uncertain cases to people.
-  It does not use gender or nationality and corrects for hidden age bias, so that good customers are
+  It does not use gender or nationality and partly corrects for hidden age bias, so that good customers are
   treated more fairly.</p>
 </div>
 """, unsafe_allow_html=True)
@@ -486,8 +486,9 @@ def section_application():
         section_title("Main reasons for this result")
         st.altair_chart(reasons_chart(contrib, row.iloc[0]), width="stretch")
         st.caption("↑ Red bars increase the risk, ↓ blue bars lower it. Longer bars have more influence. "
-                   "Age is only used to correct for age effects hidden in other information, so that "
-                   "applicants are not treated unfairly because of their age.")
+                   "Age is used as a partial fairness correction: it offsets part of the age effects hidden in "
+                   "other information, such as employment length, balancing fairness with credit risk. When it is "
+                   "a main reason, it appears as “Age (fairness correction)”.")
 
         if zone == "Yellow":
             section_title("Summary for the credit analyst")
@@ -570,7 +571,7 @@ def section_batch():
 # --------------------------------------------------------------------------------------
 def policy_results(model_key, lower, upper):
     test = evaluation[evaluation["split"] == "test"]
-    p = test["pd_final" if model_key == "d" else "pd_comparison"].to_numpy()
+    p = test["pd_final" if model_key == "final" else "pd_comparison"].to_numpy()
     y = test["y"].to_numpy()
     zone = zone_of(p, lower, upper)
     decline = p >= lower
@@ -592,7 +593,7 @@ GROUP_NAMES = {"female": "Women", "male": "Men", "19-25": "Age 19–25", "26-35"
 
 def group_table(model_key, lower, upper):
     test = evaluation[evaluation["split"] == "test"].copy()
-    p = test["pd_final" if model_key == "d" else "pd_comparison"].to_numpy()
+    p = test["pd_final" if model_key == "final" else "pd_comparison"].to_numpy()
     test["zone"] = zone_of(p, lower, upper)
     test["not_approved"] = p >= lower
     rows = []
@@ -637,7 +638,7 @@ def section_settings():
                "Decide when applications are handled automatically. The results show what these settings "
                "would have meant for 1,000 past applications.")
 
-    rec_lower = to_percent(POLICY["models"]["d"]["lower_boundary"])
+    rec_lower = to_percent(POLICY["models"]["final"]["lower_boundary"])
     rec_target = to_percent(POLICY["target_precision"])
     for state_key, widget_key in SETTING_WIDGETS.items():          # restore after switching pages
         if widget_key not in st.session_state:
@@ -647,7 +648,7 @@ def section_settings():
     with controls:
         with st.container(border=True):
             st.slider("Approve automatically when the chance of default is below", 5, 40, step=1,
-                      key="w_lower_d", format="%d%%", on_change=persist, args=("lower_d",),
+                      key="w_lower_final", format="%d%%", on_change=persist, args=("lower_final",),
                       help=f"Recommended: {rec_lower}%. This value keeps the cost of wrong decisions lowest.")
             st.slider("Decline automatically only if at least this share of declines are truly bad loans",
                       70, 95, step=1, key="w_target", format="%d%%", on_change=persist, args=("target",),
@@ -658,7 +659,7 @@ def section_settings():
                         f"automatically from **{upper:.0%}**, everything in between is reviewed by an analyst.")
             st.button("Back to recommended settings", on_click=reset_settings)
 
-    r = policy_results("d", lower, upper)
+    r = policy_results("final", lower, upper)
     baseline_cost = policy_results("a", 0.5, 0.5)["Cost"]
     with results:
         c = st.columns(3)
@@ -680,7 +681,7 @@ def section_settings():
     st.markdown('<span class="cp-muted">How are different groups of applicants handled? In a fair process, '
                 'similar shares of good customers should be approved in every group.</span>',
                 unsafe_allow_html=True)
-    table = group_table("d", lower, upper)
+    table = group_table("final", lower, upper)
     st.altair_chart(zone_share_chart(table), width="stretch")
     left, right = st.columns([1, 1.6], gap="large")
     with left:
@@ -733,18 +734,33 @@ def section_about():
     st.markdown(
         "- **Gender and nationality are never used.** Two applicants who differ only in these points get the same "
         "result.\n"
-        "- **Hidden age bias is corrected.** Age is used only to offset age effects hidden in other information. "
-        "With the recommended settings, none of the 21 creditworthy applicants aged 51+ among the past applications "
-        "was declined automatically; uncertain cases go to a person instead.\n"
+        "- **Hidden age bias is partly corrected.** Age is used as a partial fairness correction: it offsets part of "
+        "the age effects hidden in other information, such as employment length. Compared with a model without "
+        "correction, automatic declines of creditworthy applicants aged 51+ fall by more than half (16 vs. 40 of "
+        "83 in the past data); uncertain cases go to a person instead.\n"
         "- **Every result is explained.** Analysts see the main reasons behind each recommendation.")
+
+    section_title("How strong is the age correction?")
+    st.markdown(
+        "In the example data, older applicants default far more often than younger ones, and much other "
+        "information reveals age indirectly. A full age correction protects creditworthy older applicants almost "
+        "completely, but it rates young applicants about four times riskier than their actual default rate and "
+        "makes age the strongest risk factor for many of them. No correction does the opposite: it is the "
+        "cheapest, but it automatically declines about half of the creditworthy applicants aged 51+. CreditParity "
+        "uses a **partial correction**. It roughly halves the age penalty for young applicants and lowers the cost "
+        "of wrong decisions, while keeping the age gap clearly below that of an uncorrected model. The price is "
+        "that some creditworthy older applicants are declined automatically: 16 of 83 in the past data, compared "
+        "with 40 of 83 without correction. Age-related outcomes should therefore be monitored.")
 
     section_title("Good to know")
     st.markdown(
         "- The results are **estimates, not certainties**. They are based on example data, not on real customers.\n"
+        "- In this example data, **older applicants default far more often than younger ones** (76% vs. 5%), the "
+        "opposite of what is typical in real lending, so the age correction works in an unexpected direction.\n"
         "- To correct for age, CreditParity rates **young applicants as riskier** than their group's actual track "
-        "record (about 4 times) and **older applicants as less risky**. Most young applicants affected by this are "
-        "sent to an analyst rather than declined (only about 2.5% are declined automatically).\n"
-        "- About **6 in 10 applications go to a credit analyst** with the recommended settings. The bank settings "
+        "record (about 2.7 times) and **older applicants as less risky**. Most young applicants affected by this are "
+        "sent to an analyst rather than declined (fewer than 2% are declined automatically).\n"
+        "- About **half of all applications go to a credit analyst** with the recommended settings. The bank settings "
         "can reduce this workload, at the price of more automatic declines.\n"
         "- Even without using gender as an input, **men are approved automatically less often than women**, because "
         "their other information differs on average.\n"
