@@ -418,7 +418,7 @@ def section_home():
   <p class="cp-tagline">Profitable, Fair Lending Decisions</p>
   <p class="cp-mission">Our mission is to help banks lend responsibly and fairly. CreditParity estimates how
   likely an applicant is to repay, explains the result in plain words and leaves uncertain cases to people.
-  It does not use gender or nationality and partly corrects for hidden age bias, so that good customers are
+  It does not use gender or nationality and reduces hidden age bias, so that good customers are
   treated more fairly.</p>
 </div>
 """, unsafe_allow_html=True)
@@ -734,30 +734,15 @@ def section_about():
     st.markdown(
         "- **Gender and nationality are never used.** Two applicants who differ only in these points get the same "
         "result.\n"
-        "- **Hidden age bias is partly corrected.** Age is used as a partial fairness correction: it offsets part of "
-        "the age effects hidden in other information, such as employment length. Compared with a model without "
-        "correction, automatic declines of creditworthy applicants aged 51+ fall by more than half (16 vs. 40 of "
+        "- **Hidden age bias is reduced.** Age is used as a partial fairness correction. Compared with a model "
+        "without correction, automatic declines of creditworthy applicants aged 51+ fall by more than half (16 vs. 40 of "
         "83 in the past data); uncertain cases go to a person instead.\n"
         "- **Every result is explained.** Analysts see the main reasons behind each recommendation.")
-
-    section_title("How strong is the age correction?")
-    st.markdown(
-        "In the example data, older applicants default far more often than younger ones, and much other "
-        "information reveals age indirectly. A full age correction protects creditworthy older applicants almost "
-        "completely, but it rates young applicants about four times riskier than their actual default rate and "
-        "makes age the strongest risk factor for many of them. No correction does the opposite: it is the "
-        "cheapest, but it automatically declines about half of the creditworthy applicants aged 51+. CreditParity "
-        "uses a **partial correction**. It roughly halves the age penalty for young applicants and lowers the cost "
-        "of wrong decisions, while keeping the age gap clearly below that of an uncorrected model. The price is "
-        "that some creditworthy older applicants are declined automatically: 16 of 83 in the past data, compared "
-        "with 40 of 83 without correction. Age-related outcomes should therefore be monitored.")
 
     section_title("Good to know")
     st.markdown(
         "- The results are **estimates, not certainties**. They are based on example data, not on real customers.\n"
-        "- In this example data, **older applicants default far more often than younger ones** (76% vs. 5%), the "
-        "opposite of what is typical in real lending, so the age correction works in an unexpected direction.\n"
-        "- To correct for age, CreditParity rates **young applicants as riskier** than their group's actual track "
+        "- To reduce age bias, CreditParity rates **young applicants as riskier** than their group's actual track "
         "record (about 2.7 times) and **older applicants as less risky**. Most young applicants affected by this are "
         "sent to an analyst rather than declined (fewer than 2% are declined automatically).\n"
         "- About **half of all applications go to a credit analyst** with the recommended settings. The bank settings "
