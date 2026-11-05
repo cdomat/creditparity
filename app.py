@@ -492,10 +492,10 @@ def section_application():
 
         section_title("Main reasons for this result")
         st.altair_chart(reasons_chart(contrib, row.iloc[0]), width="stretch")
-        st.caption("↑ Red bars increase the risk, ↓ blue bars lower it. Longer bars have more influence. "
-                   "Age is used as a partial fairness correction: it offsets part of the age effects hidden in "
-                   "other information, such as employment length, balancing fairness with credit risk. When it is "
-                   "a main reason, it appears as “Age (fairness correction)”.")
+        st.caption("↑ Red bars increase the risk, ↓ blue bars lower it. Longer bars have more influence.  \n"
+                   "Note: Age is used as a partial fairness correction to reduce age effects hidden in other "
+                   "information, such as employment length. As the model is trained on synthetic data, certain "
+                   "relationships may differ from those observed in real-world lending.")
 
         if zone == "Yellow":
             section_title("Summary for the credit analyst")
